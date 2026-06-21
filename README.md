@@ -2,101 +2,107 @@
 
 Android platform runner for the AutoPilot declarative GUI test framework.
 
-## Project structure
+Runs the same JSON plan format used by [`autopilot-macos`](https://github.com/jschwefel-CBB/autopilot-macos) and [`autopilot-ios`](https://github.com/jschwefel-CBB/autopilot-ios). Plans are human-readable JSON, but designed to be authored by AI agents — connect an agent to the AutoPilot MCP server, describe what you want tested, and it produces a ready-to-run plan.
+
+## What's here
 
 ```
 autopilot-android/
   app/src/
-    main/                      ← TestHostApp (36-element surface)
+    main/                        ← TestHostApp (36-element surface)
       java/com/autopilot/testhostapp/
-        MainActivity.kt        ← all 36 elements wired up
-        FileTableAdapter.kt    ← RecyclerView adapter for file table rows
+        MainActivity.kt          ← all 36 elements wired up
+        FileTableAdapter.kt      ← RecyclerView adapter for file table rows
       res/
         layout/activity_main.xml
-        menu/menu_main.xml     ← Toggle Flag options menu
-        values/strings.xml
-        values/colors.xml
-    androidTest/               ← Instrumented test runner
+        menu/menu_main.xml       ← Toggle Flag options menu
+    androidTest/                 ← Instrumented test runner
       java/com/autopilot/testhostapp/
-        PlanModel.kt           ← data classes for JSON plan
-        AutoPilotRunner.kt     ← step executor (Espresso + UI Automator)
-        AutoPilotRunnerTest.kt ← @RunWith(AndroidJUnit4) entry point
+        PlanModel.kt             ← data classes for JSON plan
+        AutoPilotRunner.kt       ← step executor (UiAutomator2)
+        AutoPilotRunnerTest.kt   ← @RunWith(AndroidJUnit4) entry point
       assets/
-        test-all-capabilities.json  ← copy of the unified plan (see below)
+        test-all-capabilities.json  ← unified 78-step plan
 ```
 
-## First-time setup
+## Setup
 
-The Gradle wrapper binary (`gradle-wrapper.jar`) is not committed. Generate it once:
+Requires Android SDK and a connected device or running AVD (API 26+).
 
-```sh
-# Requires Gradle 8.9 installed locally (via SDKMAN, Homebrew, etc.)
-cd /Users/jschwefel/repositories/autopilot-android
-gradle wrapper --gradle-version 8.9
+```bash
+git clone https://github.com/jschwefel-CBB/autopilot-android.git
+cd autopilot-android
 ```
 
-After that, use `./gradlew` for all subsequent commands.
+The Gradle wrapper is included — no local Gradle installation needed.
 
-## Build the TestHostApp
+## Build
 
-```sh
+```bash
 ./gradlew :app:assembleDebug
 ```
 
-## Run the instrumented tests (requires connected device or emulator)
+## Run the tests
 
-```sh
-# Run all AutoPilot tests
-./gradlew :app:connectedAndroidTest
+```bash
+./gradlew :app:connectedDebugAndroidTest
+```
 
-# Or install + run via adb directly after assembling the test APK
+Requires a connected Android device or running AVD. Results appear in `app/build/outputs/androidTest-results/`.
+
+Or install and run via adb directly:
+
+```bash
 ./gradlew :app:assembleDebugAndroidTest
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell am instrument -w \
   com.autopilot.testhostapp.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-Results appear in `app/build/outputs/androidTest-results/`.
+## Results
 
-## Plan JSON
+The unified 78-step plan achieves **75 PASS + 3 SKIP** on Android. The 3 skipped steps require screen capture APIs not available in instrumented tests.
 
-`app/src/androidTest/assets/test-all-capabilities.json` is a **copy** of:
+| Action | Status | Reason |
+|---|---|---|
+| `assertPixel` | SKIP | Pixel-level screen capture not available via UiAutomator2 |
+| `assertRegion` | SKIP | Same |
+| `snapshot` | SKIP | Same |
 
-```
-../autopilot/Fixtures/TestHostApp/test-all-capabilities.json
-```
-
-Keep them in sync whenever the unified plan changes. The runner reads the asset
-file at test runtime via `InstrumentationRegistry.getInstrumentation().context.assets`.
-
-## How the runner works
-
-1. `AutoPilotRunnerTest.runUnifiedPlan()` calls `AutoPilotRunner.run()`
-2. `AutoPilotRunner` loads the plan JSON, then iterates every step
-3. Each `action` maps to a UI Automator / Espresso call (see `AutoPilotRunner.kt`)
-4. Steps that are macOS-specific (`assertPixel`, `assertRegion`, `snapshot`) are
-   skipped with a log message — they do not count as failures
-5. After all steps complete, any non-skipped failures are collected and the test
-   fails with the list of failing step IDs
+All other actions pass.
 
 ## Key implementation notes
 
-- **Content descriptions** are the primary element locator — every view has
-  `android:contentDescription` matching the plan identifier exactly
-- `uploadProgress` exposes its value (`"0.5"` / `"1.0"`) via `AccessibilityDelegateCompat`
-  overriding `onInitializeAccessibilityNodeInfo` → `info.text`
-- `flagCheckbox` value is `"1"` (checked) / `"0"` (unchecked) to match the macOS
-  plan convention (`"1"` maps to `NSControlStateValueOn`)
-- `dblButton` uses `GestureDetector.onDoubleTap` — the runner simulates a double-tap
-  by sending two rapid `.click()` calls with a 50 ms gap
-- `rightClickTarget` uses `setOnLongClickListener` + `PopupMenu`
-- Alert dialog buttons are found by text (`"Confirm"`, `"Cancel"`) as fallback when
-  the identifier-based lookup fails on system dialog views
-- The `toggleFlag` menu item lives in `res/menu/menu_main.xml` and is toggled via
-  `onOptionsItemSelected`; the runner opens it with `device.pressMenu()`
+- **Content descriptions** are the primary element locator — every view has `android:contentDescription` matching the plan identifier exactly.
+- Focus for text input is transferred via `MainActivity.requestFocusOnField()` called on the main thread, bypassing coordinate-based tap issues near the status bar.
+- Double-tap is simulated via `MainActivity.simulateDoubleTap()` on the main thread, avoiding touch-event timing sensitivity.
+- `scroll-end` visibility is asserted after `MainActivity.scrollInnerScrollViewToEnd()` programmatically scrolls the inner ScrollView — UiAutomator2 only surfaces views physically within the visible viewport.
+- `rightClickTarget` uses `setOnLongClickListener` + `PopupMenu`.
+- Alert dialog buttons are found by text (`"Confirm"`, `"Cancel"`) as fallback when identifier-based lookup fails on system dialog views.
+- The `toggleFlag` menu item lives in `res/menu/menu_main.xml` and is opened via `device.pressMenu()`.
 
-## Minimum requirements
+## Core dependency
+
+This runner implements the AutoPilot plan format defined by [`autopilot-core`](https://github.com/jschwefel-CBB/autopilot-core). The plan model (`PlanModel.kt`) mirrors the core schema. `autopilot-core` is a Swift package; the Android runner re-implements the same model in Kotlin.
+
+## Cross-platform
+
+The same JSON plan format runs across platforms:
+
+| Platform | Repo | Result |
+|---|---|---|
+| macOS | [`autopilot-macos`](https://github.com/jschwefel-CBB/autopilot-macos) | Full support |
+| iOS | [`autopilot-ios`](https://github.com/jschwefel-CBB/autopilot-ios) | 75 PASS + 3 SKIP |
+| Android | this repo | 75 PASS + 3 SKIP |
+
+## Requirements
 
 - Android SDK compileSdk 36 / minSdk 26
 - Kotlin 2.0 / JVM 17
-- Gradle 8.9 (via wrapper after first-time setup above)
-- A connected Android device or AVD running API 26+
+- Gradle 8.9 (wrapper included)
+- Connected Android device or AVD running API 26+
+
+## License
+
+MIT
