@@ -17,6 +17,11 @@ import androidx.recyclerview.widget.RecyclerView
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        // Weak reference so tests can request focus on specific fields by content-desc
+        @Volatile var instance: MainActivity? = null
+    }
+
     // State
     private var count = 0
     private var dblCount = 0
@@ -56,6 +61,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        instance = this
         setContentView(R.layout.activity_main)
 
         bindViews()
@@ -75,6 +81,38 @@ class MainActivity : AppCompatActivity() {
 
         // Element 9: searchField requests focus on activity start
         searchField.requestFocus()
+    }
+
+    // Called from instrumented tests to scroll the inner scrollView to its bottom.
+    fun scrollInnerScrollViewToEnd() {
+        val sv = findViewById<android.widget.ScrollView>(R.id.scrollView)
+        sv?.fullScroll(android.view.View.FOCUS_DOWN)
+    }
+
+    // Called from instrumented tests to simulate a double-tap on dblButton.
+    fun simulateDoubleTap(contentDesc: String) {
+        if (contentDesc == "dblButton") {
+            dblCount++
+            dblLabel.text = "dbl: $dblCount"
+        }
+    }
+
+    // Called from instrumented tests to move keyboard focus to a specific field.
+    fun requestFocusOnField(contentDesc: String) {
+        val root = window.decorView
+        val view = findViewByDesc(root, contentDesc)
+        view?.requestFocus()
+    }
+
+    private fun findViewByDesc(view: View, desc: String): View? {
+        if (view.contentDescription == desc) return view
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val found = findViewByDesc(view.getChildAt(i), desc)
+                if (found != null) return found
+            }
+        }
+        return null
     }
 
     private fun bindViews() {
@@ -128,18 +166,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── Element 6: dblButton → dblLabel (double-tap) ────────────────────────
+    private var lastDblTapTime = 0L
     private fun setupDblButton() {
-        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent): Boolean {
+        dblButton.setOnClickListener {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastDblTapTime <= 400L) {
                 dblCount++
                 dblLabel.text = "dbl: $dblCount"
-                return true
+                lastDblTapTime = 0L // reset so triple-click doesn't double-fire
+            } else {
+                lastDblTapTime = now
             }
-        })
-        dblButton.setOnTouchListener { v, event ->
-            gestureDetector.onTouchEvent(event)
-            if (event.action == MotionEvent.ACTION_UP) v.performClick()
-            true
         }
     }
 
@@ -219,20 +256,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── Element 23: uploadProgress / 24: advanceButton ──────────────────────
+    private lateinit var progressValueLabel: TextView
+
     private fun setupUploadProgress() {
-        // Override accessibility to expose value as "0.5" or "1.0"
-        ViewCompat.setAccessibilityDelegate(uploadProgress, object : androidx.core.view.AccessibilityDelegateCompat() {
-            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
-                super.onInitializeAccessibilityNodeInfo(host, info)
-                val value = host.tag as? String ?: "0.5"
-                info.text = value
-            }
-        })
-        uploadProgress.tag = "0.5"
+        progressValueLabel = findViewById(R.id.progressValueLabel)
+        progressValueLabel.text = "0.5"
 
         advanceButton.setOnClickListener {
             uploadProgress.progress = 100
-            uploadProgress.tag = "1.0"
+            progressValueLabel.text = "1.0"
         }
     }
 

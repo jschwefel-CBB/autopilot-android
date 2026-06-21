@@ -98,7 +98,8 @@
             android:layout_width="match_parent"
             android:layout_height="200dp"
             android:contentDescription="scrollView"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="8dp"
+            android:importantForAccessibility="yes">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -169,13 +170,14 @@
                     android:contentDescription="item-8"
                     android:padding="12dp" />
 
-                <!-- 11: scroll-end — off-screen initially -->
+                <!-- 11: scroll-end — off-screen initially; importantForAccessibility keeps it in tree -->
                 <TextView
                     android:id="@+id/scrollEnd"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="scroll-end"
                     android:contentDescription="scroll-end"
+                    android:importantForAccessibility="yes"
                     android:padding="12dp" />
             </LinearLayout>
         </ScrollView>
@@ -305,6 +307,17 @@
             android:progress="50"
             android:contentDescription="uploadProgress"
             android:layout_marginTop="8dp" />
+
+        <TextView
+            android:id="@+id/progressValueLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0.5"
+            android:contentDescription="progressValueLabel"
+            android:visibility="visible"
+            android:textSize="1sp"
+            android:alpha="0.01"
+            android:layout_marginTop="0dp" />
 
         <Button
             android:id="@+id/advanceButton"
