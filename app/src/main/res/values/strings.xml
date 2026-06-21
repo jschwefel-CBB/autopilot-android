@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AutoPilot TestHostApp</string>
+    <string name="menu_toggle_flag">Toggle Flag</string>
+    <string name="menu_view">View</string>
+</resources>

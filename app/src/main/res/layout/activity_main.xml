@@ -1,0 +1,386 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 1: nameField / 2: statusLabel -->
+        <EditText
+            android:id="@+id/nameField"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Name"
+            android:contentDescription="nameField"
+            android:inputType="text"
+            android:imeOptions="actionDone" />
+
+        <TextView
+            android:id="@+id/statusLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="status: "
+            android:contentDescription="statusLabel"
+            android:layout_marginTop="4dp" />
+
+        <!-- 3: countLabel / 5: okButton -->
+        <TextView
+            android:id="@+id/countLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="count: 0"
+            android:contentDescription="countLabel"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/okButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OK"
+            android:contentDescription="okButton"
+            android:layout_marginTop="4dp" />
+
+        <!-- 4: dblLabel / 6: dblButton -->
+        <TextView
+            android:id="@+id/dblLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="dbl: 0"
+            android:contentDescription="dblLabel"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/dblButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Double Tap Me"
+            android:contentDescription="dblButton"
+            android:layout_marginTop="4dp" />
+
+        <!-- 7: flagCheckbox -->
+        <CheckBox
+            android:id="@+id/flagCheckbox"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Flag"
+            android:contentDescription="flagCheckbox"
+            android:checked="false"
+            android:layout_marginTop="8dp" />
+
+        <!-- 8: colorSwatch -->
+        <View
+            android:id="@+id/colorSwatch"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:contentDescription="colorSwatch"
+            android:background="#3478F6"
+            android:layout_marginTop="8dp" />
+
+        <!-- 9: searchField -->
+        <EditText
+            android:id="@+id/searchField"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Search..."
+            android:contentDescription="searchField"
+            android:inputType="text"
+            android:layout_marginTop="8dp" />
+
+        <!-- 10: scrollView containing item-0...item-8 and scroll-end (11) -->
+        <ScrollView
+            android:id="@+id/scrollView"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:contentDescription="scrollView"
+            android:layout_marginTop="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="8dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-0"
+                    android:contentDescription="item-0"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-1"
+                    android:contentDescription="item-1"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-2"
+                    android:contentDescription="item-2"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-3"
+                    android:contentDescription="item-3"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-4"
+                    android:contentDescription="item-4"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-5"
+                    android:contentDescription="item-5"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-6"
+                    android:contentDescription="item-6"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-7"
+                    android:contentDescription="item-7"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="item-8"
+                    android:contentDescription="item-8"
+                    android:padding="12dp" />
+
+                <!-- 11: scroll-end — off-screen initially -->
+                <TextView
+                    android:id="@+id/scrollEnd"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="scroll-end"
+                    android:contentDescription="scroll-end"
+                    android:padding="12dp" />
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- 12: slider / 13: sliderValueLabel -->
+        <SeekBar
+            android:id="@+id/slider"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="0"
+            android:contentDescription="slider"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:id="@+id/sliderValueLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="slider: 0"
+            android:contentDescription="sliderValueLabel"
+            android:layout_marginTop="4dp" />
+
+        <!-- 14: rightClickTarget -->
+        <View
+            android:id="@+id/rightClickTarget"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:contentDescription="rightClickTarget"
+            android:background="#DDDDDD"
+            android:layout_marginTop="8dp" />
+
+        <!-- 17: modeSegment (RadioGroup) / 18: segmentLabel -->
+        <RadioGroup
+            android:id="@+id/modeSegment"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:contentDescription="modeSegment"
+            android:layout_marginTop="8dp">
+
+            <RadioButton
+                android:id="@+id/radioAlpha"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Alpha"
+                android:contentDescription="Alpha"
+                android:checked="true" />
+
+            <RadioButton
+                android:id="@+id/radioBeta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Beta"
+                android:contentDescription="Beta" />
+
+            <RadioButton
+                android:id="@+id/radioGamma"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Gamma"
+                android:contentDescription="Gamma" />
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/segmentLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="segment: 0"
+            android:contentDescription="segmentLabel"
+            android:layout_marginTop="4dp" />
+
+        <!-- 19: colorPicker (Spinner) / 20: pickerLabel -->
+        <Spinner
+            android:id="@+id/colorPicker"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:contentDescription="colorPicker"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:id="@+id/pickerLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="pick: Red"
+            android:contentDescription="pickerLabel"
+            android:layout_marginTop="4dp" />
+
+        <!-- 21: quantityStepper / 22: quantityLabel -->
+        <LinearLayout
+            android:id="@+id/quantityStepper"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:contentDescription="quantityStepper"
+            android:layout_marginTop="8dp">
+
+            <Button
+                android:id="@+id/stepperIncrement"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+"
+                android:contentDescription="stepper-increment" />
+
+            <Button
+                android:id="@+id/stepperDecrement"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-"
+                android:contentDescription="stepper-decrement" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/quantityLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="qty: 0"
+            android:contentDescription="quantityLabel"
+            android:layout_marginTop="4dp" />
+
+        <!-- 23: uploadProgress / 24: advanceButton -->
+        <ProgressBar
+            android:id="@+id/uploadProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="50"
+            android:contentDescription="uploadProgress"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/advanceButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Advance"
+            android:contentDescription="advanceButton"
+            android:layout_marginTop="4dp" />
+
+        <!-- 25: notesArea -->
+        <EditText
+            android:id="@+id/notesArea"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Notes..."
+            android:contentDescription="notesArea"
+            android:inputType="textMultiLine"
+            android:minLines="3"
+            android:gravity="top"
+            android:layout_marginTop="8dp" />
+
+        <!-- 26: termsLink -->
+        <TextView
+            android:id="@+id/termsLink"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Terms and Conditions"
+            android:contentDescription="termsLink"
+            android:textColor="#3478F6"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginTop="8dp" />
+
+        <!-- 27: fileTable (RecyclerView) / 31: tableSelLabel -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/fileTable"
+            android:layout_width="match_parent"
+            android:layout_height="150dp"
+            android:contentDescription="fileTable"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:id="@+id/tableSelLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="table-sel: none"
+            android:contentDescription="tableSelLabel"
+            android:layout_marginTop="4dp" />
+
+        <!-- 32: alertButton -->
+        <Button
+            android:id="@+id/alertButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Show Alert"
+            android:contentDescription="alertButton"
+            android:layout_marginTop="8dp" />
+
+        <!-- 35: lockedButton / 36: disabledLabel -->
+        <Button
+            android:id="@+id/lockedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Locked"
+            android:contentDescription="lockedButton"
+            android:enabled="false"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:id="@+id/disabledLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="locked: true"
+            android:contentDescription="disabledLabel"
+            android:layout_marginTop="4dp"
+            android:paddingBottom="16dp" />
+
+    </LinearLayout>
+</ScrollView>

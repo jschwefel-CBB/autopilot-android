@@ -1,0 +1,386 @@
+{
+  "schemaVersion": "1.0",
+  "name": "testhostapp-all-capabilities",
+  "target": { "bundleId": "com.autopilot.testhostapp" },
+  "defaults": { "timeoutMs": 5000, "retryIntervalMs": 100 },
+  "steps": [
+
+    { "id": "wait-window",
+      "action": "waitFor",
+      "target": { "role": "AXWindow" },
+      "args": { "present": true } },
+
+    { "id": "type-name",
+      "action": "type",
+      "target": { "identifier": "nameField" },
+      "args": { "text": "Ada", "clear": true } },
+
+    { "id": "assert-status-name",
+      "action": "assert",
+      "target": { "identifier": "statusLabel" },
+      "assert": { "property": "value", "op": "contains", "expected": "Ada" } },
+
+    { "id": "set-value",
+      "action": "setValue",
+      "target": { "identifier": "nameField" },
+      "args": { "text": "Zed-42" } },
+
+    { "id": "assert-set-value",
+      "action": "assert",
+      "target": { "identifier": "nameField" },
+      "assert": { "property": "value", "op": "matches", "expected": "Zed-\\d+" } },
+
+    { "id": "click-ok",
+      "action": "click",
+      "target": { "identifier": "okButton" } },
+
+    { "id": "assert-count-1",
+      "action": "assert",
+      "target": { "identifier": "countLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "count: 1" } },
+
+    { "id": "assert-ok-title",
+      "action": "assert",
+      "target": { "identifier": "okButton" },
+      "assert": { "property": "title", "op": "equals", "expected": "OK" } },
+
+    { "id": "assert-ok-enabled",
+      "action": "assert",
+      "target": { "identifier": "okButton" },
+      "assert": { "property": "enabled", "op": "equals", "expected": "true" } },
+
+    { "id": "press-ok",
+      "action": "press",
+      "target": { "identifier": "okButton" } },
+
+    { "id": "assert-count-2",
+      "action": "assert",
+      "target": { "identifier": "countLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "count: 2" } },
+
+    { "id": "double-click",
+      "action": "doubleClick",
+      "target": { "identifier": "dblButton" } },
+
+    { "id": "assert-dbl-1",
+      "action": "assert",
+      "target": { "identifier": "dblLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "dbl: 1" } },
+
+    { "id": "check-flag",
+      "action": "press",
+      "target": { "identifier": "flagCheckbox" } },
+
+    { "id": "assert-checked",
+      "action": "assert",
+      "target": { "identifier": "flagCheckbox" },
+      "assert": { "property": "value", "op": "equals", "expected": "1" } },
+
+    { "id": "assert-search-focused",
+      "action": "assert",
+      "target": { "identifier": "searchField" },
+      "assert": { "property": "focused", "op": "equals", "expected": "true" } },
+
+    { "id": "type-search",
+      "action": "type",
+      "target": { "identifier": "searchField" },
+      "args": { "text": "Query 9", "focus": false } },
+
+    { "id": "assert-search-value",
+      "action": "assert",
+      "target": { "identifier": "searchField" },
+      "assert": { "property": "value", "op": "equals", "expected": "Query 9" } },
+
+    { "id": "keypress-select-all",
+      "action": "keyPress",
+      "target": { "identifier": "nameField" },
+      "args": { "keys": "cmd+a" } },
+
+    { "id": "scroll-down",
+      "action": "scroll",
+      "target": { "identifier": "scrollView" },
+      "args": { "deltaY": -300 } },
+
+    { "id": "assert-scroll-end-visible",
+      "action": "waitFor",
+      "target": { "identifier": "scroll-end" },
+      "args": { "present": true } },
+
+    { "id": "assert-slider-zero",
+      "action": "assert",
+      "target": { "identifier": "sliderValueLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "slider: 0" } },
+
+    { "id": "drag-slider",
+      "action": "drag",
+      "target": { "identifier": "slider" },
+      "args": { "to": { "identifier": "sliderValueLabel" } } },
+
+    { "id": "assert-slider-moved",
+      "action": "assert",
+      "target": { "identifier": "sliderValueLabel" },
+      "assert": { "property": "value", "op": "notEquals", "expected": "slider: 0" } },
+
+    { "id": "right-click-target",
+      "action": "rightClick",
+      "target": { "identifier": "rightClickTarget" } },
+
+    { "id": "press-context-item",
+      "action": "press",
+      "target": { "role": "AXMenuItem", "title": "ContextAction" } },
+
+    { "id": "assert-context-tapped",
+      "action": "assert",
+      "target": { "identifier": "statusLabel" },
+      "assert": { "property": "value", "op": "contains", "expected": "context-tapped" } },
+
+    { "id": "menu-toggle-flag",
+      "action": "menu",
+      "args": { "menuPath": ["View", "Toggle Flag"] } },
+
+    { "id": "assert-flag-status",
+      "action": "assert",
+      "target": { "identifier": "statusLabel" },
+      "assert": { "property": "value", "op": "contains", "expected": "flag=true" } },
+
+    { "id": "assert-menu-marked",
+      "action": "assert",
+      "target": { "role": "AXMenuItem", "title": "Toggle Flag" },
+      "assert": { "property": "marked", "op": "equals", "expected": "true" } },
+
+    { "id": "assert-count-gt-1",
+      "action": "assert",
+      "target": { "role": "AXButton" },
+      "assert": { "property": "count", "op": "greaterThan", "expected": "1" } },
+
+    { "id": "assert-colorSwatch-position",
+      "action": "assert",
+      "target": { "identifier": "colorSwatch" },
+      "assert": { "property": "position", "op": "contains", "expected": "," } },
+
+    { "id": "assert-colorSwatch-size",
+      "action": "assert",
+      "target": { "identifier": "colorSwatch" },
+      "assert": { "property": "size", "op": "contains", "expected": "," } },
+
+    { "id": "assert-pixel",
+      "action": "assertPixel",
+      "target": { "identifier": "colorSwatch" },
+      "args": { "color": "#3478F6", "tolerance": 16 } },
+
+    { "id": "assert-region",
+      "action": "assertRegion",
+      "target": { "identifier": "colorSwatch" },
+      "args": { "color": "#3478F6", "width": 12, "height": 12, "mode": "dominant", "tolerance": 16 } },
+
+    { "id": "snapshot-swatch",
+      "action": "snapshot",
+      "target": { "identifier": "colorSwatch" },
+      "args": { "reference": "ref/swatch.png", "width": 30, "height": 30 } },
+
+    { "id": "screenshot-swatch",
+      "action": "screenshot",
+      "target": { "identifier": "colorSwatch" },
+      "args": { "padding": 4 } },
+
+    { "id": "explicit-wait",
+      "action": "wait",
+      "args": { "seconds": 0.05 } },
+
+    { "id": "assert-not-equals",
+      "action": "assert",
+      "target": { "identifier": "nameField" },
+      "assert": { "property": "value", "op": "notEquals", "expected": "Ada" } },
+
+    { "id": "assert-exists",
+      "action": "assert",
+      "target": { "identifier": "okButton" },
+      "assert": { "property": "value", "op": "exists" } },
+
+    { "id": "assert-not-exists",
+      "action": "assert",
+      "target": { "identifier": "okButton", "within": { "role": "AXMenuBar" } },
+      "assert": { "property": "value", "op": "notExists" } },
+
+    { "comment": "── E1: Segmented control ──────────────────────────────────────────────────",
+      "id": "segment-press-beta",
+      "action": "press",
+      "target": { "role": "AXRadioButton", "index": 1, "within": { "identifier": "modeSegment" } } },
+
+    { "id": "segment-assert-1",
+      "action": "assert",
+      "target": { "identifier": "segmentLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "segment: 1" } },
+
+    { "id": "segment-press-gamma",
+      "action": "press",
+      "target": { "role": "AXRadioButton", "index": 2, "within": { "identifier": "modeSegment" } } },
+
+    { "id": "segment-assert-2",
+      "action": "assert",
+      "target": { "identifier": "segmentLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "segment: 2" } },
+
+    { "comment": "── E2: Picker / dropdown (NSPopUpButton) ──────────────────────────────────",
+      "id": "picker-open",
+      "action": "press",
+      "target": { "identifier": "colorPicker" } },
+
+    { "id": "picker-select-blue",
+      "action": "press",
+      "target": { "role": "AXMenuItem", "title": "Blue" } },
+
+    { "id": "picker-assert-label",
+      "action": "assert",
+      "target": { "identifier": "pickerLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "pick: Blue" } },
+
+    { "comment": "── E3: Stepper ────────────────────────────────────────────────────────────",
+      "id": "stepper-assert-zero",
+      "action": "assert",
+      "target": { "identifier": "quantityLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "qty: 0" } },
+
+    { "id": "stepper-increment",
+      "action": "press",
+      "target": { "role": "AXButton", "index": 0, "within": { "identifier": "quantityStepper" } } },
+
+    { "id": "stepper-assert-one",
+      "action": "assert",
+      "target": { "identifier": "quantityLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "qty: 1" } },
+
+    { "id": "stepper-decrement",
+      "action": "press",
+      "target": { "role": "AXButton", "index": 1, "within": { "identifier": "quantityStepper" } } },
+
+    { "id": "stepper-assert-zero-again",
+      "action": "assert",
+      "target": { "identifier": "quantityLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "qty: 0" } },
+
+    { "comment": "── E4: Progress indicator ──────────────────────────────────────────────────",
+      "id": "progress-assert-half",
+      "action": "assert",
+      "target": { "identifier": "uploadProgress" },
+      "assert": { "property": "value", "op": "equals", "expected": "0.5" } },
+
+    { "id": "progress-assert-gt-zero",
+      "action": "assert",
+      "target": { "identifier": "uploadProgress" },
+      "assert": { "property": "value", "op": "greaterThan", "expected": "0.0" } },
+
+    { "id": "progress-assert-lt-one",
+      "action": "assert",
+      "target": { "identifier": "uploadProgress" },
+      "assert": { "property": "value", "op": "lessThan", "expected": "1.0" } },
+
+    { "id": "progress-advance",
+      "action": "click",
+      "target": { "identifier": "advanceButton" } },
+
+    { "id": "progress-assert-complete",
+      "action": "assert",
+      "target": { "identifier": "uploadProgress" },
+      "assert": { "property": "value", "op": "equals", "expected": "1.0" } },
+
+    { "comment": "── E5: Multi-line text area ────────────────────────────────────────────────",
+      "id": "notes-type",
+      "action": "type",
+      "target": { "identifier": "notesArea" },
+      "args": { "text": "Line one\nLine two\nLine three" } },
+
+    { "id": "notes-assert-contains",
+      "action": "assert",
+      "target": { "identifier": "notesArea" },
+      "assert": { "property": "value", "op": "contains", "expected": "Line two" } },
+
+    { "id": "notes-set-value",
+      "action": "setValue",
+      "target": { "identifier": "notesArea" },
+      "args": { "text": "Replaced" } },
+
+    { "id": "notes-assert-replaced",
+      "action": "assert",
+      "target": { "identifier": "notesArea" },
+      "assert": { "property": "value", "op": "equals", "expected": "Replaced" } },
+
+    { "comment": "── E6: Link / tappable label ───────────────────────────────────────────────",
+      "id": "link-assert-exists",
+      "action": "assert",
+      "target": { "identifier": "termsLink" },
+      "assert": { "property": "value", "op": "exists" } },
+
+    { "id": "link-click",
+      "action": "click",
+      "target": { "identifier": "termsLink" } },
+
+    { "id": "link-assert-status",
+      "action": "assert",
+      "target": { "identifier": "statusLabel" },
+      "assert": { "property": "value", "op": "contains", "expected": "link-tapped" } },
+
+    { "comment": "── E7: Table / list rows ───────────────────────────────────────────────────",
+      "id": "table-count-rows",
+      "action": "assert",
+      "target": { "role": "AXStaticText", "within": { "identifier": "fileTable" } },
+      "assert": { "property": "count", "op": "equals", "expected": "3" } },
+
+    { "id": "table-click-first-row",
+      "action": "click",
+      "target": { "identifier": "row-document.pdf" } },
+
+    { "id": "table-assert-sel-first",
+      "action": "assert",
+      "target": { "identifier": "tableSelLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "table-sel: document.pdf" } },
+
+    { "id": "table-row-exists",
+      "action": "assert",
+      "target": { "identifier": "row-photo.jpg" },
+      "assert": { "property": "value", "op": "exists" } },
+
+    { "comment": "── E8: Alert / modal sheet ─────────────────────────────────────────────────",
+      "id": "alert-trigger",
+      "action": "click",
+      "target": { "identifier": "alertButton" } },
+
+    { "id": "alert-wait-sheet",
+      "action": "waitFor",
+      "target": { "role": "AXSheet" },
+      "args": { "present": true } },
+
+    { "id": "alert-confirm",
+      "action": "press",
+      "target": { "identifier": "confirmButton" } },
+
+    { "id": "alert-wait-dismissed",
+      "action": "waitFor",
+      "target": { "role": "AXSheet" },
+      "args": { "present": false } },
+
+    { "id": "alert-assert-confirmed",
+      "action": "assert",
+      "target": { "identifier": "statusLabel" },
+      "assert": { "property": "value", "op": "contains", "expected": "alert-confirmed" } },
+
+    { "comment": "── E9: Disabled element ────────────────────────────────────────────────────",
+      "id": "disabled-assert-exists",
+      "action": "assert",
+      "target": { "identifier": "lockedButton" },
+      "assert": { "property": "value", "op": "exists" } },
+
+    { "id": "disabled-assert-enabled-false",
+      "action": "assert",
+      "target": { "identifier": "lockedButton" },
+      "assert": { "property": "enabled", "op": "equals", "expected": "false" } },
+
+    { "id": "disabled-assert-label",
+      "action": "assert",
+      "target": { "identifier": "disabledLabel" },
+      "assert": { "property": "value", "op": "equals", "expected": "locked: true" } },
+
+    { "id": "terminate",
+      "action": "terminate" }
+  ]
+}
