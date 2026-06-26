@@ -480,10 +480,31 @@ class AutoPilotRunner(
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
 
         if (sel.role == "AXMenuItem" && sel.title != null) {
-            val item = device.findObject(UiSelector().text(sel.title))
-            if (item.exists()) { item.click(); Thread.sleep(500); return StepResult(id, passed = true, skipped = false) }
-            val byDesc = device.findObject(UiSelector().description(sel.title))
-            if (byDesc.exists()) { byDesc.click(); Thread.sleep(500); return StepResult(id, passed = true, skipped = false) }
+            // The context/popup menu opened by a preceding rightClick is
+            // intermittent: sometimes it appears slowly, sometimes the long-press
+            // doesn't raise it at all (the bundled plan's flaky press-context-item
+            // step). So: (1) act on the UiObject2 the wait RETURNS (not a fresh
+            // re-find, which races the popup dismissing); (2) if the item never
+            // appears, RE-RAISE the menu by long-pressing rightClickTarget again,
+            // then retry — covers the "long-press didn't open the popup" case.
+            repeat(3) { attempt ->
+                val item = device.wait(Until.findObject(By.text(sel.title)), 2500L)
+                    ?: device.wait(Until.findObject(By.desc(sel.title)), 1000L)
+                if (item != null) {
+                    try {
+                        item.click()
+                        Thread.sleep(500)
+                        return StepResult(id, passed = true, skipped = false)
+                    } catch (_: Throwable) { /* went stale — fall through to re-raise */ }
+                }
+                if (attempt < 2) {
+                    // Re-raise the popup and try again.
+                    val anchor = device.findObject(UiSelector().description("rightClickTarget"))
+                    if (anchor.exists()) { try { anchor.longClick() } catch (_: Throwable) {} }
+                    device.waitForIdle(1500)
+                    Thread.sleep(300)
+                }
+            }
             return StepResult(id, passed = false, skipped = false, message = "MenuItem '${sel.title}' not found")
         }
 
@@ -547,8 +568,13 @@ class AutoPilotRunner(
     private fun doRightClick(step: Step): StepResult {
         val id = step.id ?: "?"
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
+        // Long-press to raise the context/popup menu, then let UiAutomator
+        // settle so the popup is present before the following menu-item press. The
+        // 300ms fixed sleep raced the popup on a loaded emulator; waitForIdle plus a
+        // larger settle makes the rightClick→press-item handoff reliable.
         findElement(sel).longClick()
-        Thread.sleep(300)
+        device.waitForIdle(1500)
+        Thread.sleep(400)
         return StepResult(id, passed = true, skipped = false)
     }
 
