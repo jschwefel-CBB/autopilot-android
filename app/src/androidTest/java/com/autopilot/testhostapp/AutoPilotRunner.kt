@@ -318,9 +318,21 @@ class AutoPilotRunner(
                 "android.widget.CheckBox" ->
                     if (element.isChecked) "1" else "0"
                 "android.widget.ProgressBar" -> {
-                    // Read the sibling progressValueLabel TextView that MainActivity keeps in sync
-                    val lbl = device.findObject(UiSelector().description("progressValueLabel"))
-                    lbl.text?.takeIf { it.isNotEmpty() } ?: ""
+                    // The progress value lives on a sibling progressValueLabel
+                    // TextView that MainActivity keeps in sync. A one-shot read
+                    // intermittently caught it before the label surfaced/updated
+                    // (empty → flaky progress-assert-half, actual=''). Poll the
+                    // label for a non-empty value with a short deadline so a
+                    // transient miss doesn't propagate "".
+                    var v = ""
+                    val deadline = SystemClock.uptimeMillis() + 2000L
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        val lbl = device.findObject(UiSelector().description("progressValueLabel"))
+                        v = if (lbl.exists()) (lbl.text ?: "") else ""
+                        if (v.isNotEmpty()) break
+                        Thread.sleep(100)
+                    }
+                    v
                 }
                 else -> {
                     val t = element.text
