@@ -103,26 +103,12 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          # Build+install the app and androidTest APKs once, then run the
-          # instrumentation 5 times in a row. Fail the job if ANY run fails — this
-          # is the reliability gate that catches intermittent/timing flakes a
-          # single run would let through.
-          script: |
-            set -e
-            ./gradlew :app:installDebug :app:installDebugAndroidTest
-            RUNNER="com.autopilot.testhostapp.test/androidx.test.runner.AndroidJUnitRunner"
-            for i in 1 2 3 4 5; do
-              echo "::group::Unified plan run $i/5"
-              OUT=$(adb shell am instrument -w \
-                -e class com.autopilot.testhostapp.AutoPilotRunnerTest "$RUNNER" 2>&1)
-              echo "$OUT"
-              echo "::endgroup::"
-              if ! echo "$OUT" | grep -q 'OK ('; then
-                echo "::error::Unified plan FAILED on run $i/5 (intermittent flake or regression)"
-                exit 1
-              fi
-            done
-            echo "Unified plan passed 5/5 consecutive runs."
+          # Build+install once, then run the unified plan 5 times in a row (fail if
+          # ANY run fails) — the reliability gate that catches intermittent flakes a
+          # single run would let through. The loop lives in a committed script
+          # because the action runs the inline `script:` line-by-line, which breaks
+          # a multi-line shell for-loop ("end of file unexpected (expecting done)").
+          script: bash scripts/run-plan-5x.sh 5
 
       - name: Upload test report on failure
         if: failure()
