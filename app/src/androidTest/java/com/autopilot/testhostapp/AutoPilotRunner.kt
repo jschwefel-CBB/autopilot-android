@@ -260,18 +260,33 @@ class AutoPilotRunner(
         } catch (e: Exception) { "" }
     }
 
-    // Jetpack Compose splits a TextField across two UiAutomator nodes: the
-    // contentDescription lands on a (usually empty) wrapper View, while the
-    // editable text lives on a descendant EditText that carries NO desc. When a
-    // desc-matched node has no text of its own, descend to that inner EditText
-    // and read its value. Returns "" when there is no such descendant (i.e. the
-    // node genuinely has no value) so classic-View behavior is unchanged.
+    // Read a Jetpack Compose TextField's value. Compose does NOT nest the editable
+    // EditText under the contentDescription node — the desc lands on a wrapper View
+    // and the real EditText is a SEPARATE node (often only a suffix-label TextView
+    // is an actual child). So getChild(EditText) finds nothing. Instead:
+    //  1. If an EditText currently holds focus, read it (the field was just focused
+    //     by a preceding type/click).
+    //  2. Else find the EditText whose bounds sit inside the desc node's bounds
+    //     (Compose lays the input out within the tagged wrapper's rect).
+    // Returns "" when neither resolves, so classic-View behavior is unchanged.
     private fun composeFieldValue(element: UiObject): String {
         return try {
-            val inner = element.getChild(UiSelector().className("android.widget.EditText"))
-            val t = if (inner.exists()) inner.text else null
-            if (!t.isNullOrEmpty()) t else ""
+            val focused = device.findObject(By.focused(true).clazz("android.widget.EditText"))
+            if (focused?.text?.isNotEmpty() == true) return focused.text
+            val inner = editTextWithinBounds(element)
+            inner?.text?.takeIf { it.isNotEmpty() } ?: ""
         } catch (_: Exception) { "" }
+    }
+
+    // Find the EditText (UiObject2) whose visible bounds are contained within the
+    // desc-matched node's bounds — the Compose input that visually belongs to the
+    // tagged wrapper even though it is not its UiAutomator child. Null if none.
+    private fun editTextWithinBounds(descNode: UiObject): UiObject2? {
+        return try {
+            val outer = descNode.visibleBounds
+            device.findObjects(By.clazz("android.widget.EditText"))
+                .firstOrNull { outer.contains(it.visibleBounds) }
+        } catch (_: Exception) { null }
     }
 
     // ── Step dispatch ────────────────────────────────────────────────────────
@@ -474,14 +489,13 @@ class AutoPilotRunner(
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
         val text = step.args?.text ?: return StepResult(id, passed = false, skipped = false, message = "no text arg")
         val clear = step.args.clear ?: false
-        // Compose: the desc-matched node may be a wrapper; the editable EditText is
-        // a descendant. setText/focus must target the editable node, not the wrapper.
-        val element = editableNode(findElement(sel))
-        if (clear) {
-            element.setText("")  // accessibility ACTION_SET_TEXT — clears regardless of focus
-            Thread.sleep(50)
-        }
-        focusElement(element)
+        val matched = findElement(sel)
+        // Compose: the desc node is a wrapper; tapping its center moves platform
+        // focus to the real (separate) EditText. Drive input against whatever is
+        // then focused. For a classic-View EditText the matched node IS the field,
+        // so this still works (it is its own focused node).
+        val field = focusEditableField(matched)
+        if (clear) { field?.setText("") ?: matched.setText("") ; Thread.sleep(50) }
         val finalText = text.replace("\\n", "\n")
         instrumentation.sendStringSync(finalText)
         Thread.sleep(400)
@@ -495,52 +509,43 @@ class AutoPilotRunner(
         val id = step.id ?: "?"
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
         val text = step.args?.text ?: return StepResult(id, passed = false, skipped = false, message = "no text arg")
-        val element = editableNode(findElement(sel))
-        element.setText("")
+        val matched = findElement(sel)
+        val field = focusEditableField(matched)
+        field?.setText("") ?: matched.setText("")
         Thread.sleep(50)
-        focusElement(element)
         instrumentation.sendStringSync(text)
         Thread.sleep(400)
         closeIme()
         return StepResult(id, passed = true, skipped = false)
     }
 
-    // Resolve the node that actually accepts text. A classic-View EditText carries
-    // both its contentDescription and its editable text, so it IS the editable
-    // node. A Compose TextField exposes the desc on a wrapper View whose editable
-    // text lives on a descendant EditText — in that case return the descendant.
-    private fun editableNode(matched: UiObject): UiObject {
+    // Focus the editable field for a desc-matched node and return it as a
+    // UiObject2 (or null if none resolves). For Compose, the EditText is a
+    // separate node, so we tap the desc node to move focus there, then return the
+    // now-focused EditText. For a classic EditText the tap focuses itself.
+    // Falls back to the TestHostApp's main-thread focus hook when present (no-op
+    // on external apps via the null-safe MainActivity.instance).
+    private fun focusEditableField(matched: UiObject): UiObject2? {
         return try {
-            if (matched.className == "android.widget.EditText") return matched
-            val inner = matched.getChild(UiSelector().className("android.widget.EditText"))
-            if (inner.exists()) inner else matched
-        } catch (_: Exception) { matched }
-    }
-
-    // Focus an EditText for keyboard input. Uses the Activity's requestFocusOnField
-    // (runs on main thread, bypasses coordinate issues) as the primary approach,
-    // then falls back to accessibility click and shell tap.
-    private fun focusElement(element: UiObject) {
-        val desc = try { element.contentDescription } catch (_: Exception) { null }
-        if (desc != null) {
-            instrumentation.runOnMainSync {
-                MainActivity.instance?.requestFocusOnField(desc)
+            // TestHostApp-only reliability hook; null-safe → no-op on external apps.
+            val desc = try { matched.contentDescription } catch (_: Exception) { null }
+            if (desc != null) {
+                instrumentation.runOnMainSync { MainActivity.instance?.requestFocusOnField(desc) }
+                Thread.sleep(150)
             }
-            Thread.sleep(200)
-        }
-        if (!element.isFocused) {
-            element.click()
-            val deadline = SystemClock.uptimeMillis() + 800L
-            while (!element.isFocused && SystemClock.uptimeMillis() < deadline) {
-                Thread.sleep(50)
+            // If the matched node is itself an EditText, focus + return it directly.
+            if (matched.className == "android.widget.EditText") {
+                if (!matched.isFocused) { matched.click(); Thread.sleep(200) }
+            } else {
+                // Compose wrapper: tap its center to move focus to the real input.
+                val b = matched.visibleBounds
+                device.executeShellCommand("input tap ${b.centerX()} ${b.centerY()}")
+                Thread.sleep(250)
             }
-        }
-        if (!element.isFocused) {
-            val b = element.visibleBounds
-            device.executeShellCommand("input tap ${b.centerX()} ${b.centerY()}")
-            Thread.sleep(300)
-        }
-        Thread.sleep(100)
+            // Return whatever EditText now holds focus (the real input).
+            device.findObject(By.focused(true).clazz("android.widget.EditText"))
+                ?: editTextWithinBounds(matched)
+        } catch (_: Exception) { null }
     }
 
     // Close the soft keyboard. KEYCODE_ESCAPE (111) dismisses the IME without
@@ -733,7 +738,35 @@ class AutoPilotRunner(
 
     private fun assertEnabled(id: String, sel: SelectorJson, op: String, expected: String): StepResult {
         val element = findElement(sel)
-        return compare(id, element.isEnabled.toString(), op, expected)
+        return compare(id, resolveEnabled(sel, element).toString(), op, expected)
+    }
+
+    // Determine whether a control is "enabled", correctly handling Jetpack Compose.
+    // Compose's disabled state (Modifier.semantics { disabled() } + clickable(
+    // enabled=false)) drops the click action and sets the AccessibilityNodeInfo
+    // enabled flag, but legacy UiObject.isEnabled reads the flattened XML and
+    // still reports true. So:
+    //  1. Prefer the UiObject2 (By.desc) enabled flag — it reflects the
+    //     AccessibilityNodeInfo, which Compose disabled() DOES clear.
+    //  2. For a control that is meant to be clickable (it advertises a click
+    //     action), also require isClickable — Compose marks a disabled clickable
+    //     as clickable=false while leaving enabled=true in the legacy view.
+    private fun resolveEnabled(sel: SelectorJson, legacy: UiObject): Boolean {
+        return try {
+            val o2 = sel.identifier?.let { device.findObject(By.desc(it)) }
+            if (o2 != null) {
+                // If the node exposes a click action, a disabled Compose control
+                // shows up as clickable=false; fold that in. Non-clickable nodes
+                // (labels, etc.) are judged on the enabled flag alone.
+                if (o2.isClickable || legacy.isClickable) o2.isEnabled && o2.isClickable
+                else o2.isEnabled
+            } else {
+                // No UiObject2 (role/title selector): fall back to legacy, folding
+                // in clickability for clickable controls.
+                if (legacy.isClickable) legacy.isEnabled && legacy.isClickable
+                else legacy.isEnabled
+            }
+        } catch (_: Exception) { legacy.isEnabled }
     }
 
     private fun assertFocused(id: String, sel: SelectorJson, op: String, expected: String): StepResult {
