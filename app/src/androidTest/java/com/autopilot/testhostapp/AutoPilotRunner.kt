@@ -62,6 +62,22 @@ class AutoPilotRunner(
     private fun resolveTargetPackage(plan: Plan): String =
         targetPackageOverride ?: plan.target.bundleId ?: hostPackage
 
+    // Whether to best-effort dismiss runtime-permission dialogs that appear
+    // mid-run (plan defaults.dismissPermissionDialogs). Resolved in run().
+    private var dismissPermissionDialogs: Boolean = false
+
+    /** Grant the plan's declared permissions to the target package via `pm grant`,
+     * so their runtime dialogs never block the run. No-op for the host app and
+     * for an empty list. Failures are non-fatal (e.g. a non-grantable perm). */
+    private fun grantDeclaredPermissions(plan: Plan) {
+        if (drivingHostApp) return
+        for (perm in plan.target.permissions) {
+            try {
+                device.executeShellCommand("pm grant $targetPackage $perm")
+            } catch (_: Exception) { /* non-grantable / already granted — ignore */ }
+        }
+    }
+
     /** Launch the target app from its launcher intent and wait for it to appear. */
     private fun launchTargetApp() {
         if (drivingHostApp) return  // bundled mode launches via the test's ActivityScenarioRule
@@ -74,15 +90,47 @@ class AutoPilotRunner(
         device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 10_000L)
     }
 
+    /** Best-effort dismissal of a blocking runtime-permission system dialog.
+     * Only acts when the plan opted in (dismissPermissionDialogs). Taps the
+     * "while using"/"allow" affordance if a permission-controller dialog is up.
+     * Returns true if it dismissed something. */
+    private fun dismissPermissionDialogIfPresent(): Boolean {
+        if (!dismissPermissionDialogs) return false
+        val controller = "com.android.permissioncontroller"
+        if (!device.hasObject(By.pkg(controller))) return false
+        // Prefer the foreground/while-using grant, then a generic allow.
+        val ids = listOf(
+            "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
+            "com.android.permissioncontroller:id/permission_allow_button"
+        )
+        for (rid in ids) {
+            val btn = device.findObject(By.res(rid))
+            if (btn != null) { btn.click(); Thread.sleep(300); return true }
+        }
+        // Fallback: match common button text.
+        for (label in listOf("While using the app", "Allow", "ALLOW", "Only this time")) {
+            val btn = device.findObject(By.text(label))
+            if (btn != null) { btn.click(); Thread.sleep(300); return true }
+        }
+        return false
+    }
+
     // ── Public entry point ──────────────────────────────────────────────────
 
     fun run(): List<StepResult> {
         val plan = loadPlan()
         targetPackage = resolveTargetPackage(plan)
+        dismissPermissionDialogs = plan.defaults?.dismissPermissionDialogs ?: false
+        grantDeclaredPermissions(plan)   // grant up front so dialogs never appear
         launchTargetApp()
         val timeout = plan.defaults?.timeoutMs ?: defaultTimeout()
         if (drivingHostApp) scrollToTop()  // fixture-only; never on an external app
-        return plan.steps.map { step -> executeStep(step, timeout) }
+        return plan.steps.map { step ->
+            // A permission dialog can surface on screen entry mid-plan; clear it
+            // (opt-in) before the step interacts with the now-covered UI.
+            dismissPermissionDialogIfPresent()
+            executeStep(step, timeout)
+        }
     }
 
     private fun scrollToTop() {
