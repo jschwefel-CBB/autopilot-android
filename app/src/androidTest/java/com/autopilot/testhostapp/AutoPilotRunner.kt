@@ -742,31 +742,47 @@ class AutoPilotRunner(
     }
 
     // Determine whether a control is "enabled", correctly handling Jetpack Compose.
-    // Compose's disabled state (Modifier.semantics { disabled() } + clickable(
-    // enabled=false)) drops the click action and sets the AccessibilityNodeInfo
-    // enabled flag, but legacy UiObject.isEnabled reads the flattened XML and
-    // still reports true. So:
-    //  1. Prefer the UiObject2 (By.desc) enabled flag — it reflects the
-    //     AccessibilityNodeInfo, which Compose disabled() DOES clear.
-    //  2. For a control that is meant to be clickable (it advertises a click
-    //     action), also require isClickable — Compose marks a disabled clickable
-    //     as clickable=false while leaving enabled=true in the legacy view.
+    // (DOPE-64/87/67/68/70) A Compose control disabled via
+    // Modifier.clickable(enabled=false) + semantics{ role=Button; disabled() }
+    // drops its click action but leaves enabled=true on the desc-matched node and
+    // on the AccessibilityNodeInfo. The disabled state lives on the CLICKABLE
+    // WRAPPER that contains the desc node: verified live against ScopeDOPE's
+    // addDopeButton — the desc node reads clickable=false/enabled=true, but its
+    // clickable parent wrapper reads enabled=FALSE. So resolve enabled from that
+    // clickable container:
+    //   1. If the desc node is itself clickable, use its own enabled flag.
+    //   2. Else walk up to the nearest clickable ancestor (the Compose
+    //      "button" wrapper) and use ITS enabled flag — that is where Compose
+    //      records the disabled state.
+    //   3. No clickable container (a plain label/field) → the node's own enabled
+    //      flag, so non-interactive elements are unaffected.
     private fun resolveEnabled(sel: SelectorJson, legacy: UiObject): Boolean {
         return try {
             val o2 = sel.identifier?.let { device.findObject(By.desc(it)) }
             if (o2 != null) {
-                // If the node exposes a click action, a disabled Compose control
-                // shows up as clickable=false; fold that in. Non-clickable nodes
-                // (labels, etc.) are judged on the enabled flag alone.
-                if (o2.isClickable || legacy.isClickable) o2.isEnabled && o2.isClickable
-                else o2.isEnabled
-            } else {
-                // No UiObject2 (role/title selector): fall back to legacy, folding
-                // in clickability for clickable controls.
-                if (legacy.isClickable) legacy.isEnabled && legacy.isClickable
-                else legacy.isEnabled
+                if (o2.isClickable) return o2.isEnabled
+                val container = nearestClickableAncestor(o2)
+                if (container != null) return container.isEnabled
+                return o2.isEnabled
             }
+            // role/title selector (no UiObject2): legacy node only.
+            if (legacy.isClickable) legacy.isEnabled
+            else legacy.isEnabled
         } catch (_: Exception) { legacy.isEnabled }
+    }
+
+    // Walk up the parent chain to the nearest clickable node (the Compose wrapper
+    // that owns the click action and the enabled state). Bounded to a few levels
+    // so a non-interactive node doesn't climb the whole tree. Null if none.
+    private fun nearestClickableAncestor(node: UiObject2): UiObject2? {
+        var current: UiObject2? = node.parent
+        var depth = 0
+        while (current != null && depth < 4) {
+            if (current.isClickable) return current
+            current = current.parent
+            depth++
+        }
+        return null
     }
 
     private fun assertFocused(id: String, sel: SelectorJson, op: String, expected: String): StepResult {
