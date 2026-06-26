@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      The agent drives arbitrary installed apps (e.g. ScopeDOPE) via the external-plan
+      entry point. On Android 11+ (API 30+), package visibility filtering hides other
+      packages, so getLaunchIntentForPackage() returns null even when the app is
+      installed. A test-automation agent legitimately needs to see and launch any app.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
