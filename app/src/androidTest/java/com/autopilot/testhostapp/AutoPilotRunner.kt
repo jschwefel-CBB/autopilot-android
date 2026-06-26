@@ -9,26 +9,79 @@ import org.junit.Assert.*
 import java.io.File
 import java.io.InputStreamReader
 
-class AutoPilotRunner {
+/**
+ * Drives a plan against an app via UiAutomator.
+ *
+ * Two entry modes:
+ *  - Bundled mode (no args): loads the bundled `test-all-capabilities.json`
+ *    asset and drives the in-repo TestHostApp (the original behavior — used by
+ *    this module's own CI).
+ *  - External mode: given an explicit plan source (a file path on the device)
+ *    and/or a target package, it loads that plan and drives that EXTERNAL app
+ *    (e.g. com.coldboreballisticsllc.scopedope). UiAutomator is system-wide, so
+ *    it can query and act across app boundaries; the only thing the runner must
+ *    NOT do is assume the app under test is its own instrumentation target.
+ *
+ * `planPath`     — absolute path to a plan JSON on the device; null → bundled asset.
+ * `targetPackage`— package to launch/drive; null → plan.target.bundleId → the
+ *                  instrumentation target (bundled host app) as the final fallback.
+ */
+class AutoPilotRunner(
+    private val planPath: String? = null,
+    private val targetPackageOverride: String? = null
+) {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device: UiDevice = UiDevice.getInstance(instrumentation)
+
+    // The package actually being driven. Resolved in run() once the plan is known.
+    // Defaults to the instrumentation target so bundled-mode behavior is unchanged.
+    private var targetPackage: String = instrumentation.targetContext.packageName
+
+    // True when driving this module's own TestHostApp — gates fixture-specific
+    // setup (e.g. scrollToTop) that must never run against an arbitrary app.
+    private val hostPackage: String = instrumentation.targetContext.packageName
+    private val drivingHostApp: Boolean get() = targetPackage == hostPackage
 
     private fun defaultTimeout(): Long = 5000L
 
     // ── Plan loading ────────────────────────────────────────────────────────
 
     private fun loadPlan(): Plan {
-        val stream = instrumentation.context.assets.open("test-all-capabilities.json")
-        return Gson().fromJson(InputStreamReader(stream), Plan::class.java)
+        val reader = if (planPath != null) {
+            // External plan pushed to the device (adb push … ; -e plan <path>).
+            InputStreamReader(File(planPath).inputStream())
+        } else {
+            // Bundled mode: the plan packaged in this test APK's assets.
+            InputStreamReader(instrumentation.context.assets.open("test-all-capabilities.json"))
+        }
+        return Gson().fromJson(reader, Plan::class.java)
+    }
+
+    /** Resolve which package to drive: explicit override > plan target > host app. */
+    private fun resolveTargetPackage(plan: Plan): String =
+        targetPackageOverride ?: plan.target.bundleId ?: hostPackage
+
+    /** Launch the target app from its launcher intent and wait for it to appear. */
+    private fun launchTargetApp() {
+        if (drivingHostApp) return  // bundled mode launches via the test's ActivityScenarioRule
+        val ctx = instrumentation.context
+        val intent = ctx.packageManager.getLaunchIntentForPackage(targetPackage)
+            ?: throw IllegalStateException(
+                "Target package '$targetPackage' is not installed on the device")
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(intent)
+        device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 10_000L)
     }
 
     // ── Public entry point ──────────────────────────────────────────────────
 
     fun run(): List<StepResult> {
         val plan = loadPlan()
+        targetPackage = resolveTargetPackage(plan)
+        launchTargetApp()
         val timeout = plan.defaults?.timeoutMs ?: defaultTimeout()
-        scrollToTop()
+        if (drivingHostApp) scrollToTop()  // fixture-only; never on an external app
         return plan.steps.map { step -> executeStep(step, timeout) }
     }
 
@@ -77,7 +130,7 @@ class AutoPilotRunner {
 
     // Scroll the outer page to bring an element into view.
     private fun scrollIntoView(sel: SelectorJson) {
-        val pkg = instrumentation.targetContext.packageName
+        val pkg = targetPackage
         // instance(0) picks the outermost ScrollView; the inner one (contentDescription="scrollView")
         // is instance(1) and would not contain top-of-page elements like colorSwatch or statusLabel.
         val outerScroll = UiScrollable(
@@ -166,6 +219,7 @@ class AutoPilotRunner {
         return try {
             when (step.action) {
                 null -> StepResult(id, passed = true, skipped = true, message = "comment-only step")
+                "launch"      -> doLaunch()
                 "waitFor"     -> doWaitFor(step, timeout)
                 "click"       -> doClick(step)
                 "press"       -> doPress(step)
@@ -206,7 +260,7 @@ class AutoPilotRunner {
 
         return when {
             sel.role == "AXWindow" -> {
-                val pkg = instrumentation.targetContext.packageName
+                val pkg = targetPackage
                 val ok = device.wait(Until.hasObject(By.pkg(pkg)), timeout)
                 StepResult(id, passed = ok, skipped = false,
                     message = if (ok) "" else "window not found within ${timeout}ms")
@@ -682,6 +736,23 @@ class AutoPilotRunner {
         device.takeScreenshot(file)
         android.util.Log.i("AutoPilotRunner", "screenshot saved: ${file.absolutePath}")
         return StepResult(id, passed = true, skipped = false, message = "screenshot: ${file.absolutePath}")
+    }
+
+    // ── launch ─────────────────────────────────────────────────────────────────
+
+    // The app is launched once in run() before steps execute. An explicit
+    // `launch` step confirms the target is foreground, re-launching the external
+    // app if a prior step (e.g. terminate) backgrounded it. For the bundled host
+    // app, the ActivityScenarioRule owns launch, so this is a presence check.
+    private fun doLaunch(): StepResult {
+        if (!drivingHostApp) {
+            if (!device.hasObject(By.pkg(targetPackage).depth(0))) {
+                launchTargetApp()
+            }
+        }
+        val ok = device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 10_000L)
+        return StepResult("launch", passed = ok, skipped = false,
+            message = if (ok) "" else "target '$targetPackage' did not appear")
     }
 
     // ── terminate ────────────────────────────────────────────────────────────
