@@ -9,27 +9,128 @@ import org.junit.Assert.*
 import java.io.File
 import java.io.InputStreamReader
 
-class AutoPilotRunner {
+/**
+ * Drives a plan against an app via UiAutomator.
+ *
+ * Two entry modes:
+ *  - Bundled mode (no args): loads the bundled `test-all-capabilities.json`
+ *    asset and drives the in-repo TestHostApp (the original behavior — used by
+ *    this module's own CI).
+ *  - External mode: given an explicit plan source (a file path on the device)
+ *    and/or a target package, it loads that plan and drives that EXTERNAL app
+ *    (e.g. com.coldboreballisticsllc.scopedope). UiAutomator is system-wide, so
+ *    it can query and act across app boundaries; the only thing the runner must
+ *    NOT do is assume the app under test is its own instrumentation target.
+ *
+ * `planPath`     — absolute path to a plan JSON on the device; null → bundled asset.
+ * `targetPackage`— package to launch/drive; null → plan.target.bundleId → the
+ *                  instrumentation target (bundled host app) as the final fallback.
+ */
+class AutoPilotRunner(
+    private val planPath: String? = null,
+    private val targetPackageOverride: String? = null
+) {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device: UiDevice = UiDevice.getInstance(instrumentation)
+
+    // The package actually being driven. Resolved in run() once the plan is known.
+    // Defaults to the instrumentation target so bundled-mode behavior is unchanged.
+    private var targetPackage: String = instrumentation.targetContext.packageName
+
+    // True when driving this module's own TestHostApp — gates fixture-specific
+    // setup (e.g. scrollToTop) that must never run against an arbitrary app.
+    private val hostPackage: String = instrumentation.targetContext.packageName
+    private val drivingHostApp: Boolean get() = targetPackage == hostPackage
 
     private fun defaultTimeout(): Long = 5000L
 
     // ── Plan loading ────────────────────────────────────────────────────────
 
     private fun loadPlan(): Plan {
-        val stream = instrumentation.context.assets.open("test-all-capabilities.json")
-        return Gson().fromJson(InputStreamReader(stream), Plan::class.java)
+        val reader = if (planPath != null) {
+            // External plan pushed to the device (adb push … ; -e plan <path>).
+            InputStreamReader(File(planPath).inputStream())
+        } else {
+            // Bundled mode: the plan packaged in this test APK's assets.
+            InputStreamReader(instrumentation.context.assets.open("test-all-capabilities.json"))
+        }
+        return Gson().fromJson(reader, Plan::class.java)
+    }
+
+    /** Resolve which package to drive: explicit override > plan target > host app. */
+    private fun resolveTargetPackage(plan: Plan): String =
+        targetPackageOverride ?: plan.target.bundleId ?: hostPackage
+
+    // Whether to best-effort dismiss runtime-permission dialogs that appear
+    // mid-run (plan defaults.dismissPermissionDialogs). Resolved in run().
+    private var dismissPermissionDialogs: Boolean = false
+
+    /** Grant the plan's declared permissions to the target package via `pm grant`,
+     * so their runtime dialogs never block the run. No-op for the host app and
+     * for an empty list. Failures are non-fatal (e.g. a non-grantable perm). */
+    private fun grantDeclaredPermissions(plan: Plan) {
+        if (drivingHostApp) return
+        for (perm in plan.target.permissions) {
+            try {
+                device.executeShellCommand("pm grant $targetPackage $perm")
+            } catch (_: Exception) { /* non-grantable / already granted — ignore */ }
+        }
+    }
+
+    /** Launch the target app from its launcher intent and wait for it to appear. */
+    private fun launchTargetApp() {
+        if (drivingHostApp) return  // bundled mode launches via the test's ActivityScenarioRule
+        val ctx = instrumentation.context
+        val intent = ctx.packageManager.getLaunchIntentForPackage(targetPackage)
+            ?: throw IllegalStateException(
+                "Target package '$targetPackage' is not installed on the device")
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(intent)
+        device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 10_000L)
+    }
+
+    /** Best-effort dismissal of a blocking runtime-permission system dialog.
+     * Only acts when the plan opted in (dismissPermissionDialogs). Taps the
+     * "while using"/"allow" affordance if a permission-controller dialog is up.
+     * Returns true if it dismissed something. */
+    private fun dismissPermissionDialogIfPresent(): Boolean {
+        if (!dismissPermissionDialogs) return false
+        val controller = "com.android.permissioncontroller"
+        if (!device.hasObject(By.pkg(controller))) return false
+        // Prefer the foreground/while-using grant, then a generic allow.
+        val ids = listOf(
+            "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
+            "com.android.permissioncontroller:id/permission_allow_button"
+        )
+        for (rid in ids) {
+            val btn = device.findObject(By.res(rid))
+            if (btn != null) { btn.click(); Thread.sleep(300); return true }
+        }
+        // Fallback: match common button text.
+        for (label in listOf("While using the app", "Allow", "ALLOW", "Only this time")) {
+            val btn = device.findObject(By.text(label))
+            if (btn != null) { btn.click(); Thread.sleep(300); return true }
+        }
+        return false
     }
 
     // ── Public entry point ──────────────────────────────────────────────────
 
     fun run(): List<StepResult> {
         val plan = loadPlan()
+        targetPackage = resolveTargetPackage(plan)
+        dismissPermissionDialogs = plan.defaults?.dismissPermissionDialogs ?: false
+        grantDeclaredPermissions(plan)   // grant up front so dialogs never appear
+        launchTargetApp()
         val timeout = plan.defaults?.timeoutMs ?: defaultTimeout()
-        scrollToTop()
-        return plan.steps.map { step -> executeStep(step, timeout) }
+        if (drivingHostApp) scrollToTop()  // fixture-only; never on an external app
+        return plan.steps.map { step ->
+            // A permission dialog can surface on screen entry mid-plan; clear it
+            // (opt-in) before the step interacts with the now-covered UI.
+            dismissPermissionDialogIfPresent()
+            executeStep(step, timeout)
+        }
     }
 
     private fun scrollToTop() {
@@ -46,11 +147,81 @@ class AutoPilotRunner {
     // ── Element finding ─────────────────────────────────────────────────────
 
     private fun findElement(sel: SelectorJson): UiObject {
-        val obj = resolveElement(sel)
-        if (!obj.exists()) {
-            scrollIntoView(sel)
-        }
+        var obj = resolveElement(sel)
+        if (obj.exists()) return obj
+        // Brief settle + retry first — a just-raised IME can momentarily disrupt
+        // the query for a field that is actually on-screen (Round-4 evidence:
+        // nameField was visible yet first resolve missed it). Cheapest recovery.
+        Thread.sleep(200)
+        obj = resolveElement(sel)
+        if (obj.exists()) return obj
+        // (DOPE-70/71/72/73, DOPE-76) Still not found. Two causes, handled in order:
+        //  3a) the soft keyboard is covering it — dismiss the IME NON-DESTRUCTIVELY
+        //      (never pressBack: it would close a modal dialog);
+        //  3b) dynamic content (a growing list / Compose scroll) pushed it below
+        //      the fold — scroll it back (handle-based, else bounds-based swipes).
+        forceDismissIme()
+        obj = resolveElement(sel)
+        if (obj.exists()) return obj
+        scrollIntoViewCompose(sel)
+        obj = resolveElement(sel)
+        if (obj.exists()) return obj
+        // Legacy fixture-oriented fallback (TestHostApp ScrollView paths).
+        scrollIntoView(sel)
         return resolveElement(sel)
+    }
+
+    // (DOPE-76) Compose-friendly scroll-into-view. Compose scroll containers
+    // (Modifier.verticalScroll / LazyColumn) do NOT expose scrollable="true" on a
+    // recognizable android.widget.ScrollView, so By.scrollable(true) often finds
+    // nothing and the legacy UiScrollable path has no handle. So:
+    //  1. If a real scrollable node exists, drive it (LazyColumn sometimes does).
+    //  2. Otherwise fall back to BOUNDS-BASED swipes on the content area —
+    //     swipe up to reveal content below, then down, re-checking for the target
+    //     by content-desc between swipes. This needs no scrollable handle.
+    private fun scrollIntoViewCompose(sel: SelectorJson) {
+        val id = sel.identifier ?: sel.within?.identifier ?: return
+        try {
+            val container = device.findObjects(By.scrollable(true))
+                .maxByOrNull { it.visibleBounds.width() * it.visibleBounds.height() }
+            if (container != null) {
+                container.setGestureMargin(container.visibleBounds.height() / 8)
+                repeat(8) {
+                    if (device.hasObject(By.desc(id))) return
+                    container.scroll(Direction.DOWN, 0.6f); Thread.sleep(120)
+                }
+                repeat(8) {
+                    if (device.hasObject(By.desc(id))) return
+                    container.scroll(Direction.UP, 0.6f); Thread.sleep(120)
+                }
+                if (device.hasObject(By.desc(id))) return
+            }
+            // Bounds-based fallback (Compose scroll with no scrollable handle).
+            swipeScanForDesc(id)
+        } catch (_: Exception) {}
+    }
+
+    // Reveal an off-screen content-desc target by swiping the content area itself
+    // (no scrollable handle needed). Swipes within the middle band of the screen
+    // — above any keyboard, below the toolbar — re-checking after each. Up-swipes
+    // (reveal-below) first since growing lists push the add-row downward, then
+    // down-swipes. Returns as soon as the target appears.
+    private fun swipeScanForDesc(id: String) {
+        val w = device.displayWidth
+        val h = device.displayHeight
+        val x = w / 2
+        val top = (h * 0.30).toInt()      // below the app bar
+        val bottom = (h * 0.62).toInt()   // above where the IME would sit
+        repeat(8) {
+            if (device.hasObject(By.desc(id))) return
+            device.swipe(x, bottom, x, top, 24)   // content moves up → reveal below
+            Thread.sleep(150)
+        }
+        repeat(8) {
+            if (device.hasObject(By.desc(id))) return
+            device.swipe(x, top, x, bottom, 24)   // content moves down → reveal above
+            Thread.sleep(150)
+        }
     }
 
     private fun resolveElement(sel: SelectorJson): UiObject {
@@ -77,7 +248,7 @@ class AutoPilotRunner {
 
     // Scroll the outer page to bring an element into view.
     private fun scrollIntoView(sel: SelectorJson) {
-        val pkg = instrumentation.targetContext.packageName
+        val pkg = targetPackage
         // instance(0) picks the outermost ScrollView; the inner one (contentDescription="scrollView")
         // is instance(1) and would not contain top-of-page elements like colorSwatch or statusLabel.
         val outerScroll = UiScrollable(
@@ -147,16 +318,57 @@ class AutoPilotRunner {
                 "android.widget.CheckBox" ->
                     if (element.isChecked) "1" else "0"
                 "android.widget.ProgressBar" -> {
-                    // Read the sibling progressValueLabel TextView that MainActivity keeps in sync
-                    val lbl = device.findObject(UiSelector().description("progressValueLabel"))
-                    lbl.text?.takeIf { it.isNotEmpty() } ?: ""
+                    // The progress value lives on a sibling progressValueLabel
+                    // TextView that MainActivity keeps in sync. A one-shot read
+                    // intermittently caught it before the label surfaced/updated
+                    // (empty → flaky progress-assert-half, actual=''). Poll the
+                    // label for a non-empty value with a short deadline so a
+                    // transient miss doesn't propagate "".
+                    var v = ""
+                    val deadline = SystemClock.uptimeMillis() + 2000L
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        val lbl = device.findObject(UiSelector().description("progressValueLabel"))
+                        v = if (lbl.exists()) (lbl.text ?: "") else ""
+                        if (v.isNotEmpty()) break
+                        Thread.sleep(100)
+                    }
+                    v
                 }
                 else -> {
                     val t = element.text
-                    if (!t.isNullOrEmpty()) t else ""
+                    if (!t.isNullOrEmpty()) t else composeFieldValue(element)
                 }
             }
         } catch (e: Exception) { "" }
+    }
+
+    // Read a Jetpack Compose TextField's value. Compose does NOT nest the editable
+    // EditText under the contentDescription node — the desc lands on a wrapper View
+    // and the real EditText is a SEPARATE node (often only a suffix-label TextView
+    // is an actual child). So getChild(EditText) finds nothing. Instead:
+    //  1. If an EditText currently holds focus, read it (the field was just focused
+    //     by a preceding type/click).
+    //  2. Else find the EditText whose bounds sit inside the desc node's bounds
+    //     (Compose lays the input out within the tagged wrapper's rect).
+    // Returns "" when neither resolves, so classic-View behavior is unchanged.
+    private fun composeFieldValue(element: UiObject): String {
+        return try {
+            val focused = device.findObject(By.focused(true).clazz("android.widget.EditText"))
+            if (focused?.text?.isNotEmpty() == true) return focused.text
+            val inner = editTextWithinBounds(element)
+            inner?.text?.takeIf { it.isNotEmpty() } ?: ""
+        } catch (_: Exception) { "" }
+    }
+
+    // Find the EditText (UiObject2) whose visible bounds are contained within the
+    // desc-matched node's bounds — the Compose input that visually belongs to the
+    // tagged wrapper even though it is not its UiAutomator child. Null if none.
+    private fun editTextWithinBounds(descNode: UiObject): UiObject2? {
+        return try {
+            val outer = descNode.visibleBounds
+            device.findObjects(By.clazz("android.widget.EditText"))
+                .firstOrNull { outer.contains(it.visibleBounds) }
+        } catch (_: Exception) { null }
     }
 
     // ── Step dispatch ────────────────────────────────────────────────────────
@@ -166,6 +378,7 @@ class AutoPilotRunner {
         return try {
             when (step.action) {
                 null -> StepResult(id, passed = true, skipped = true, message = "comment-only step")
+                "launch"      -> doLaunch()
                 "waitFor"     -> doWaitFor(step, timeout)
                 "click"       -> doClick(step)
                 "press"       -> doPress(step)
@@ -206,7 +419,7 @@ class AutoPilotRunner {
 
         return when {
             sel.role == "AXWindow" -> {
-                val pkg = instrumentation.targetContext.packageName
+                val pkg = targetPackage
                 val ok = device.wait(Until.hasObject(By.pkg(pkg)), timeout)
                 StepResult(id, passed = ok, skipped = false,
                     message = if (ok) "" else "window not found within ${timeout}ms")
@@ -279,10 +492,31 @@ class AutoPilotRunner {
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
 
         if (sel.role == "AXMenuItem" && sel.title != null) {
-            val item = device.findObject(UiSelector().text(sel.title))
-            if (item.exists()) { item.click(); Thread.sleep(500); return StepResult(id, passed = true, skipped = false) }
-            val byDesc = device.findObject(UiSelector().description(sel.title))
-            if (byDesc.exists()) { byDesc.click(); Thread.sleep(500); return StepResult(id, passed = true, skipped = false) }
+            // The context/popup menu opened by a preceding rightClick is
+            // intermittent: sometimes it appears slowly, sometimes the long-press
+            // doesn't raise it at all (the bundled plan's flaky press-context-item
+            // step). So: (1) act on the UiObject2 the wait RETURNS (not a fresh
+            // re-find, which races the popup dismissing); (2) if the item never
+            // appears, RE-RAISE the menu by long-pressing rightClickTarget again,
+            // then retry — covers the "long-press didn't open the popup" case.
+            repeat(3) { attempt ->
+                val item = device.wait(Until.findObject(By.text(sel.title)), 2500L)
+                    ?: device.wait(Until.findObject(By.desc(sel.title)), 1000L)
+                if (item != null) {
+                    try {
+                        item.click()
+                        Thread.sleep(500)
+                        return StepResult(id, passed = true, skipped = false)
+                    } catch (_: Throwable) { /* went stale — fall through to re-raise */ }
+                }
+                if (attempt < 2) {
+                    // Re-raise the popup and try again.
+                    val anchor = device.findObject(UiSelector().description("rightClickTarget"))
+                    if (anchor.exists()) { try { anchor.longClick() } catch (_: Throwable) {} }
+                    device.waitForIdle(1500)
+                    Thread.sleep(300)
+                }
+            }
             return StepResult(id, passed = false, skipped = false, message = "MenuItem '${sel.title}' not found")
         }
 
@@ -346,8 +580,13 @@ class AutoPilotRunner {
     private fun doRightClick(step: Step): StepResult {
         val id = step.id ?: "?"
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
+        // Long-press to raise the context/popup menu, then let UiAutomator
+        // settle so the popup is present before the following menu-item press. The
+        // 300ms fixed sleep raced the popup on a loaded emulator; waitForIdle plus a
+        // larger settle makes the rightClick→press-item handoff reliable.
         findElement(sel).longClick()
-        Thread.sleep(300)
+        device.waitForIdle(1500)
+        Thread.sleep(400)
         return StepResult(id, passed = true, skipped = false)
     }
 
@@ -358,12 +597,13 @@ class AutoPilotRunner {
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
         val text = step.args?.text ?: return StepResult(id, passed = false, skipped = false, message = "no text arg")
         val clear = step.args.clear ?: false
-        val element = findElement(sel)
-        if (clear) {
-            element.setText("")  // accessibility ACTION_SET_TEXT — clears regardless of focus
-            Thread.sleep(50)
-        }
-        focusElement(element)
+        val matched = findElement(sel)
+        // Compose: the desc node is a wrapper; tapping its center moves platform
+        // focus to the real (separate) EditText. Drive input against whatever is
+        // then focused. For a classic-View EditText the matched node IS the field,
+        // so this still works (it is its own focused node).
+        val field = focusEditableField(matched)
+        if (clear) { field?.setText("") ?: matched.setText("") ; Thread.sleep(50) }
         val finalText = text.replace("\\n", "\n")
         instrumentation.sendStringSync(finalText)
         Thread.sleep(400)
@@ -377,49 +617,100 @@ class AutoPilotRunner {
         val id = step.id ?: "?"
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
         val text = step.args?.text ?: return StepResult(id, passed = false, skipped = false, message = "no text arg")
-        val element = findElement(sel)
-        element.setText("")
+        val matched = findElement(sel)
+        val field = focusEditableField(matched)
+        field?.setText("") ?: matched.setText("")
         Thread.sleep(50)
-        focusElement(element)
         instrumentation.sendStringSync(text)
         Thread.sleep(400)
         closeIme()
         return StepResult(id, passed = true, skipped = false)
     }
 
-    // Focus an EditText for keyboard input. Uses the Activity's requestFocusOnField
-    // (runs on main thread, bypasses coordinate issues) as the primary approach,
-    // then falls back to accessibility click and shell tap.
-    private fun focusElement(element: UiObject) {
-        val desc = try { element.contentDescription } catch (_: Exception) { null }
-        if (desc != null) {
-            instrumentation.runOnMainSync {
-                MainActivity.instance?.requestFocusOnField(desc)
+    // Focus the editable field for a desc-matched node and return it as a
+    // UiObject2 (or null if none resolves). For Compose, the EditText is a
+    // separate node, so we tap the desc node to move focus there, then return the
+    // now-focused EditText. For a classic EditText the tap focuses itself.
+    // Falls back to the TestHostApp's main-thread focus hook when present (no-op
+    // on external apps via the null-safe MainActivity.instance).
+    private fun focusEditableField(matched: UiObject): UiObject2? {
+        return try {
+            // TestHostApp-only reliability hook; null-safe → no-op on external apps.
+            val desc = try { matched.contentDescription } catch (_: Exception) { null }
+            if (desc != null) {
+                instrumentation.runOnMainSync { MainActivity.instance?.requestFocusOnField(desc) }
+                Thread.sleep(150)
             }
-            Thread.sleep(200)
-        }
-        if (!element.isFocused) {
-            element.click()
-            val deadline = SystemClock.uptimeMillis() + 800L
-            while (!element.isFocused && SystemClock.uptimeMillis() < deadline) {
-                Thread.sleep(50)
+            // If the matched node is itself an EditText, focus + return it directly.
+            if (matched.className == "android.widget.EditText") {
+                if (!matched.isFocused) { matched.click(); Thread.sleep(200) }
+            } else {
+                // Compose wrapper: tap its center to move focus to the real input.
+                val b = matched.visibleBounds
+                device.executeShellCommand("input tap ${b.centerX()} ${b.centerY()}")
+                Thread.sleep(250)
             }
-        }
-        if (!element.isFocused) {
-            val b = element.visibleBounds
-            device.executeShellCommand("input tap ${b.centerX()} ${b.centerY()}")
-            Thread.sleep(300)
-        }
-        Thread.sleep(100)
+            // Return whatever EditText now holds focus (the real input).
+            device.findObject(By.focused(true).clazz("android.widget.EditText"))
+                ?: editTextWithinBounds(matched)
+        } catch (_: Exception) { null }
     }
 
-    // Close the soft keyboard. KEYCODE_ESCAPE (111) dismisses the IME without
-    // triggering back navigation or editor actions on API 30+.
+    // Close the soft keyboard. KEYCODE_ESCAPE dismisses the IME without
+    // back-navigation on most apps. Cheap (no service dump) — runs after every
+    // type, so it must stay light. The stronger guarded-Back dismissal lives in
+    // forceDismissIme(), invoked only on the rare not-found recovery path.
     private fun closeIme() {
         try {
-            device.executeShellCommand("input keyevent 111")
+            device.executeShellCommand("input keyevent 111")  // ESCAPE
             Thread.sleep(200)
         } catch (_: Exception) {}
+    }
+
+    // Stronger IME dismissal for the not-found recovery path (a covered field):
+    // if the keyboard is still shown after ESCAPE, a GUARDED Back press hides it —
+    // guarded by isImeShown() so Back consumes the keyboard rather than navigating
+    // (never a stray Back that pops a dialog/screen). (DOPE-70/71/72/73) Only
+    // called when an element wasn't found, NOT after every type — so the heavier
+    // dumpsys check here is not on the hot path.
+    // (DOPE-70/71/72/73) NON-DESTRUCTIVE IME dismissal for the not-found recovery
+    // path. MUST NOT use pressBack: a Back press inside a modal (e.g. the ammo
+    // Add-Custom-Ammo AlertDialog) closes the WHOLE DIALOG, not the keyboard —
+    // that was the Round-3 regression. Try ESCAPE, then ask the InputMethodManager
+    // to hide the IME (no key/back event). If the keyboard still won't hide, just
+    // proceed: an un-occluded field is still queryable; only a genuinely
+    // keyboard-covered control needs more, and Back is never an acceptable cost.
+    private fun forceDismissIme() {
+        try {
+            if (!isImeShown()) return
+            device.executeShellCommand("input keyevent 111")  // ESCAPE — no back nav
+            Thread.sleep(150)
+            if (!isImeShown()) return
+            // InputMethodManager.hideSoftInputFromWindow on the focused view's
+            // window token — hides the IME without any back event.
+            instrumentation.runOnMainSync {
+                try {
+                    val imm = instrumentation.targetContext
+                        .getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                        as? android.view.inputmethod.InputMethodManager
+                    val token = instrumentation.targetContext
+                        .let { (it as? android.app.Activity)?.currentFocus?.windowToken }
+                    if (token != null) imm?.hideSoftInputFromWindow(token, 0)
+                } catch (_: Exception) {}
+            }
+            Thread.sleep(150)
+            // Whatever the IME state now, do NOT pressBack. Proceed.
+        } catch (_: Exception) {}
+    }
+
+    // True when the soft keyboard is currently shown. Reads the input-method
+    // service's window-visibility flag. Heavier (a service dump) — call only off
+    // the hot path (the not-found recovery in findElement), never per-type.
+    private fun isImeShown(): Boolean {
+        return try {
+            val out = device.executeShellCommand("dumpsys input_method")
+            out.contains("mInputShown=true")
+        } catch (_: Exception) { false }
     }
 
     // ── scroll ───────────────────────────────────────────────────────────────
@@ -603,7 +894,51 @@ class AutoPilotRunner {
 
     private fun assertEnabled(id: String, sel: SelectorJson, op: String, expected: String): StepResult {
         val element = findElement(sel)
-        return compare(id, element.isEnabled.toString(), op, expected)
+        return compare(id, resolveEnabled(sel, element).toString(), op, expected)
+    }
+
+    // Determine whether a control is "enabled", correctly handling Jetpack Compose.
+    // (DOPE-64/87/67/68/70) A Compose control disabled via
+    // Modifier.clickable(enabled=false) + semantics{ role=Button; disabled() }
+    // drops its click action but leaves enabled=true on the desc-matched node and
+    // on the AccessibilityNodeInfo. The disabled state lives on the CLICKABLE
+    // WRAPPER that contains the desc node: verified live against ScopeDOPE's
+    // addDopeButton — the desc node reads clickable=false/enabled=true, but its
+    // clickable parent wrapper reads enabled=FALSE. So resolve enabled from that
+    // clickable container:
+    //   1. If the desc node is itself clickable, use its own enabled flag.
+    //   2. Else walk up to the nearest clickable ancestor (the Compose
+    //      "button" wrapper) and use ITS enabled flag — that is where Compose
+    //      records the disabled state.
+    //   3. No clickable container (a plain label/field) → the node's own enabled
+    //      flag, so non-interactive elements are unaffected.
+    private fun resolveEnabled(sel: SelectorJson, legacy: UiObject): Boolean {
+        return try {
+            val o2 = sel.identifier?.let { device.findObject(By.desc(it)) }
+            if (o2 != null) {
+                if (o2.isClickable) return o2.isEnabled
+                val container = nearestClickableAncestor(o2)
+                if (container != null) return container.isEnabled
+                return o2.isEnabled
+            }
+            // role/title selector (no UiObject2): legacy node only.
+            if (legacy.isClickable) legacy.isEnabled
+            else legacy.isEnabled
+        } catch (_: Exception) { legacy.isEnabled }
+    }
+
+    // Walk up the parent chain to the nearest clickable node (the Compose wrapper
+    // that owns the click action and the enabled state). Bounded to a few levels
+    // so a non-interactive node doesn't climb the whole tree. Null if none.
+    private fun nearestClickableAncestor(node: UiObject2): UiObject2? {
+        var current: UiObject2? = node.parent
+        var depth = 0
+        while (current != null && depth < 4) {
+            if (current.isClickable) return current
+            current = current.parent
+            depth++
+        }
+        return null
     }
 
     private fun assertFocused(id: String, sel: SelectorJson, op: String, expected: String): StepResult {
@@ -682,6 +1017,23 @@ class AutoPilotRunner {
         device.takeScreenshot(file)
         android.util.Log.i("AutoPilotRunner", "screenshot saved: ${file.absolutePath}")
         return StepResult(id, passed = true, skipped = false, message = "screenshot: ${file.absolutePath}")
+    }
+
+    // ── launch ─────────────────────────────────────────────────────────────────
+
+    // The app is launched once in run() before steps execute. An explicit
+    // `launch` step confirms the target is foreground, re-launching the external
+    // app if a prior step (e.g. terminate) backgrounded it. For the bundled host
+    // app, the ActivityScenarioRule owns launch, so this is a presence check.
+    private fun doLaunch(): StepResult {
+        if (!drivingHostApp) {
+            if (!device.hasObject(By.pkg(targetPackage).depth(0))) {
+                launchTargetApp()
+            }
+        }
+        val ok = device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 10_000L)
+        return StepResult("launch", passed = ok, skipped = false,
+            message = if (ok) "" else "target '$targetPackage' did not appear")
     }
 
     // ── terminate ────────────────────────────────────────────────────────────

@@ -11,12 +11,20 @@ data class Plan(
 )
 
 data class TargetApp(
-    val bundleId: String? = null
+    val bundleId: String? = null,
+    // Permissions to grant the target package before the run (e.g.
+    // "android.permission.ACCESS_FINE_LOCATION"), so their runtime dialogs never
+    // block the UI. Granted via `pm grant`; ignored for the bundled host app.
+    val permissions: List<String> = emptyList()
 )
 
 data class PlanDefaults(
     val timeoutMs: Long? = null,
-    val retryIntervalMs: Long? = null
+    val retryIntervalMs: Long? = null,
+    // Best-effort: if a runtime-permission system dialog appears mid-run, tap its
+    // allow/while-using affordance to clear it. Opt-in (default false) — the
+    // runner only dismisses dialogs when a plan asks it to.
+    val dismissPermissionDialogs: Boolean? = null
 )
 
 data class Step(

@@ -38,6 +38,20 @@ The Gradle wrapper is included — no local Gradle installation needed.
 
 ## Build
 
+> **JDK requirement.** Run Gradle with **JDK 17 or 21**. The bundled Gradle (8.9)
+> cannot parse a newer system JDK (e.g. JDK 26) and fails early with a cryptic
+> version error (`26.0.1`). The build pins a JVM toolchain to compile against
+> JDK 17, but that does not control the JVM that *launches* Gradle. If your
+> default `java` is newer than 21, point Gradle at a 17/21 JDK, e.g. on macOS
+> with Android Studio installed:
+>
+> ```bash
+> ./gradlew :app:assembleDebug \
+>   -Dorg.gradle.java.home="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+> ```
+>
+> (Or set `org.gradle.java.home` in `~/.gradle/gradle.properties`.)
+
 ```bash
 ./gradlew :app:assembleDebug
 ```

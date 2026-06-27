@@ -24,8 +24,14 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
 
-
+// Pin the JVM toolchain so the build always compiles against JDK 17 regardless
+// of the operator's system JDK. Without this, a newer system JDK (e.g. 26) that
+// the bundled Gradle can't parse fails the build. foojay (settings.gradle.kts)
+// provisions JDK 17 if it isn't already installed.
+kotlin {
+    jvmToolchain(17)
 }
 
 dependencies {

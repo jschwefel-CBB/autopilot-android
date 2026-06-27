@@ -54,6 +54,12 @@ jobs:
   # Run the full unified 78-step plan on an emulator — the Android analogue of
   # the iOS XCUITest / macOS CLI run. Hard gate: the instrumented test fails the
   # job if any plan step fails. Emulators run KVM-accelerated on Linux runners.
+  #
+  # RELIABILITY GATE: the plan is run REPEATEDLY (not once). A single run hides
+  # intermittent/timing flakes — a step that fails ~half the time still passes a
+  # one-shot run often enough to go green. Running it N consecutive times and
+  # failing if ANY iteration fails turns "passed once" into "passed N in a row",
+  # which is the signal external consumers (e.g. driving a real Compose app) need.
   instrumented-test:
     runs-on: ubuntu-latest
     steps:
@@ -86,8 +92,10 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Run unified plan on emulator
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Run unified plan on emulator (5x reliability gate)
+        # Pinned to a full commit SHA (v2.34.0) per supply-chain hardening —
+        # a tag is mutable; a SHA is immutable.
+        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d
         with:
           api-level: 30
           arch: x86_64
@@ -95,7 +103,12 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: ./gradlew connectedDebugAndroidTest
+          # Build+install once, then run the unified plan 5 times in a row (fail if
+          # ANY run fails) — the reliability gate that catches intermittent flakes a
+          # single run would let through. The loop lives in a committed script
+          # because the action runs the inline `script:` line-by-line, which breaks
+          # a multi-line shell for-loop ("end of file unexpected (expecting done)").
+          script: bash scripts/run-plan-5x.sh 5
 
       - name: Upload test report on failure
         if: failure()
