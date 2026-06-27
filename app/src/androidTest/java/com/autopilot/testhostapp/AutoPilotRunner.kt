@@ -303,14 +303,19 @@ class AutoPilotRunner(
             }
             // UiObject2.scroll() does not reliably move some Compose LazyColumns
             // (it reports no-movement immediately though the list CAN scroll). A raw
-            // gesture swipe on the container DOES scroll it — verified on the scroll
-            // fixture where scroll() bailed but a swipe revealed the deep field. Use
-            // it as a BOUNDED fallback (no per-event a11y blocking, so no thrash
-            // crash): swipe within the container's own bounds, re-checking each time.
-            val b = container.visibleBounds
-            val cx = b.centerX()
-            val yLo = b.top + b.height() / 6
-            val yHi = b.bottom - b.height() / 6
+            // gesture swipe DOES scroll it — verified on the scroll fixture where
+            // scroll() bailed but a swipe revealed the deep field. Use it as a
+            // BOUNDED fallback (no per-event a11y blocking, so no thrash crash).
+            //
+            // Anchor the swipe to the CONTENT BAND ABOVE THE KEYBOARD using the
+            // SCREEN, not the container's visibleBounds: the IME squeezes the
+            // container so its bounds give a tiny (ineffective) swipe span. The
+            // keyboard occupies roughly the bottom ~45% on a dense small screen
+            // (CI's pixel_5/api-30), so swipe between ~18% and ~50% of the display
+            // height — a long pull entirely in the visible, non-keyboard area.
+            val cx = device.displayWidth / 2
+            val yLo = (device.displayHeight * 0.18).toInt()
+            val yHi = (device.displayHeight * 0.50).toInt()
             for ((from, to) in listOf(yHi to yLo, yLo to yHi)) {  // reveal-below, then -above
                 repeat(8) {
                     if (device.hasObject(By.desc(id))) return
