@@ -598,7 +598,10 @@ class AutoPilotRunner(
     private fun doClick(step: Step): StepResult {
         val id = step.id ?: "?"
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
-        findElement(sel).click()
+        val el = findElement(sel)
+        if (!el.exists()) return StepResult(id, passed = false, skipped = false,
+            message = "click target '${sel.identifier ?: sel.role}' not found")
+        el.click()
         Thread.sleep(300)
         return StepResult(id, passed = true, skipped = false)
     }
@@ -700,7 +703,10 @@ class AutoPilotRunner(
         // settle so the popup is present before the following menu-item press. The
         // 300ms fixed sleep raced the popup on a loaded emulator; waitForIdle plus a
         // larger settle makes the rightClick→press-item handoff reliable.
-        findElement(sel).longClick()
+        val el = findElement(sel)
+        if (!el.exists()) return StepResult(id, passed = false, skipped = false,
+            message = "rightClick target '${sel.identifier ?: sel.role}' not found")
+        el.longClick()
         device.waitForIdle(1500)
         Thread.sleep(400)
         return StepResult(id, passed = true, skipped = false)
@@ -744,6 +750,9 @@ class AutoPilotRunner(
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
         val text = step.args?.text ?: return StepResult(id, passed = false, skipped = false, message = "no text arg")
         val matched = findElement(sel)
+        // Same not-found guard as doType: don't fall through to the focused field.
+        if (!matched.exists()) return StepResult(id, passed = false, skipped = false,
+            message = "setValue target '${sel.identifier ?: sel.role}' not found")
         val field = focusEditableField(matched)
         field?.setText("") ?: matched.setText("")
         Thread.sleep(50)
