@@ -387,10 +387,18 @@ class AutoPilotRunner(
     // Returns "" when neither resolves, so classic-View behavior is unchanged.
     private fun composeFieldValue(element: UiObject): String {
         return try {
-            val focused = device.findObject(By.focused(true).clazz("android.widget.EditText"))
-            if (focused?.text?.isNotEmpty() == true) return focused.text
+            // FIELD-SPECIFIC first: the EditText whose bounds sit within THIS
+            // desc-matched node's bounds. (Reading By.focused(true) first was the
+            // bug — it returns whatever field currently holds focus, so after
+            // typing A→B→C every field read back C's value. The Compose fixture
+            // caught this: assert-A and assert-B both read the last-typed value.)
             val inner = editTextWithinBounds(element)
-            inner?.text?.takeIf { it.isNotEmpty() } ?: ""
+            inner?.text?.takeIf { it.isNotEmpty() }?.let { return it }
+            // Fallback: only when no EditText maps to this node's bounds, fall back
+            // to the focused field (covers single-field screens where bounds may
+            // not enclose the input).
+            val focused = device.findObject(By.focused(true).clazz("android.widget.EditText"))
+            focused?.text?.takeIf { it.isNotEmpty() } ?: ""
         } catch (_: Exception) { "" }
     }
 
