@@ -884,18 +884,22 @@ class AutoPilotRunner(
         }
 
         val element = findElement(sel)
-        // Poll up to 3s for the value to satisfy the condition — handles async UI updates
-        // after popup dismissal, menu clicks, link taps, and alert confirms.
+        // Poll up to 5s for the value to satisfy the condition — handles async UI
+        // updates after popup dismissal, menu clicks, link taps, alert confirms,
+        // and a not-yet-synced ProgressBar value label on a slow CI emulator. An
+        // EMPTY read ('') is treated as "not ready, keep polling" (never compared)
+        // — that empty value reaching compare() was the flaky progress-assert-half.
         val actual = if (expected.isNotEmpty() && op in listOf("equals","contains","matches","greaterThan","lessThan")) {
-            val deadline = SystemClock.uptimeMillis() + 3000L
+            val deadline = SystemClock.uptimeMillis() + 5000L
             var v = readValue(element)
             while (SystemClock.uptimeMillis() < deadline) {
-                val satisfies = when (op) {
-                    "equals"      -> v == expected
-                    "contains"    -> v.contains(expected)
-                    "matches"     -> v.matches(Regex(expected))
-                    "greaterThan" -> (v.toDoubleOrNull() ?: 0.0) > (expected.toDoubleOrNull() ?: 0.0)
-                    "lessThan"    -> (v.toDoubleOrNull() ?: 0.0) < (expected.toDoubleOrNull() ?: 0.0)
+                val satisfies = when {
+                    v.isEmpty()         -> false   // not ready yet — keep polling, don't compare ''
+                    op == "equals"      -> v == expected
+                    op == "contains"    -> v.contains(expected)
+                    op == "matches"     -> v.matches(Regex(expected))
+                    op == "greaterThan" -> (v.toDoubleOrNull() ?: 0.0) > (expected.toDoubleOrNull() ?: 0.0)
+                    op == "lessThan"    -> (v.toDoubleOrNull() ?: 0.0) < (expected.toDoubleOrNull() ?: 0.0)
                     else -> true
                 }
                 if (satisfies) break
