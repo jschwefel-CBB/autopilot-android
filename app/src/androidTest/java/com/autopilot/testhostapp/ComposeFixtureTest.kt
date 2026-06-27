@@ -26,6 +26,9 @@ class ComposeFixtureTest {
         val device = UiDevice.getInstance(instr)
 
         // Launch the Compose fixture activity (not the launcher MainActivity).
+        // Use targetContext (the app-under-test's context) — starting an activity
+        // in the target app from the TEST package's context is a cross-uid
+        // SecurityException.
         val intent = Intent().apply {
             setClassName(
                 "com.autopilot.testhostapp",
@@ -33,7 +36,7 @@ class ComposeFixtureTest {
             )
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
-        instr.context.startActivity(intent)
+        instr.targetContext.startActivity(intent)
         // Wait for the dialog's first field to appear before the plan runs.
         device.wait(Until.hasObject(By.desc("fixtureFieldA")), 10_000L)
 
