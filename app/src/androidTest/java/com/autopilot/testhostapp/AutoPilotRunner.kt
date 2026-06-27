@@ -263,23 +263,32 @@ class AutoPilotRunner(
     private fun scrollIntoViewCompose(sel: SelectorJson) {
         val id = sel.identifier ?: sel.within?.identifier ?: return
         try {
+            // The IME squeezes a Compose list/dialog into the top fraction of the
+            // screen, so a deep item (LazyColumn virtualization → not composed until
+            // near the viewport) can't be scrolled to. Dismiss the keyboard first so
+            // the list reclaims its full height, then drive the scroll.
+            forceDismissIme()
+            device.waitForIdle(800)
+            if (device.hasObject(By.desc(id))) return
             val container = device.findObjects(By.scrollable(true))
                 .maxByOrNull { it.visibleBounds.width() * it.visibleBounds.height() }
             if (container != null) {
                 container.setGestureMargin(container.visibleBounds.height() / 8)
-                repeat(8) {
+                // More iterations (a deep LazyColumn item can be many screens down)
+                // and a fuller scroll fraction so each step advances further.
+                repeat(15) {
                     if (device.hasObject(By.desc(id))) return
-                    container.scroll(Direction.DOWN, 0.6f); Thread.sleep(120)
+                    container.scroll(Direction.DOWN, 0.8f); Thread.sleep(120)
                 }
-                repeat(8) {
+                repeat(15) {
                     if (device.hasObject(By.desc(id))) return
-                    container.scroll(Direction.UP, 0.6f); Thread.sleep(120)
+                    container.scroll(Direction.UP, 0.8f); Thread.sleep(120)
                 }
                 if (device.hasObject(By.desc(id))) return
             }
             // Bounds-based fallback (Compose scroll with no scrollable handle).
             swipeScanForDesc(id)
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
     }
 
     // Reveal an off-screen content-desc target by swiping the content area itself
@@ -705,6 +714,15 @@ class AutoPilotRunner(
         val text = step.args?.text ?: return StepResult(id, passed = false, skipped = false, message = "no text arg")
         val clear = step.args.clear ?: false
         val matched = findElement(sel)
+        // Fail loudly if the target field was never found — do NOT fall through to
+        // focusEditableField, which would type into whatever field currently holds
+        // focus (the CI scroll-fixture bug: scrollFieldLow was below the fold and
+        // NOT composed, so the find failed, yet text was typed into the focused top
+        // field and the step falsely "passed").
+        if (!matched.exists()) {
+            return StepResult(id, passed = false, skipped = false,
+                message = "type target '${sel.identifier ?: sel.role}' not found")
+        }
         // Compose: the desc node is a wrapper; tapping its center moves platform
         // focus to the real (separate) EditText. Drive input against whatever is
         // then focused. For a classic-View EditText the matched node IS the field,
