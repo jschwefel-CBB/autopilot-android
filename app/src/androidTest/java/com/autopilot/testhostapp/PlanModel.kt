@@ -24,7 +24,12 @@ data class PlanDefaults(
     // Best-effort: if a runtime-permission system dialog appears mid-run, tap its
     // allow/while-using affordance to clear it. Opt-in (default false) — the
     // runner only dismisses dialogs when a plan asks it to.
-    val dismissPermissionDialogs: Boolean? = null
+    val dismissPermissionDialogs: Boolean? = null,
+    // Skip the host-app initial scrollToTop() (the MainActivity-specific swipes).
+    // Set true for host-app plans that drive a different surface (e.g. the Compose
+    // fixture dialog) where those swipes would disturb the UI. Default false →
+    // existing unified-plan behavior unchanged.
+    val skipInitialScroll: Boolean? = null
 )
 
 data class Step(

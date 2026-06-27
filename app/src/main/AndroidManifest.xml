@@ -22,5 +22,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Compose test fixture (reproduces the OutlinedTextField-in-AlertDialog
+             find-after-type case under the CI gate). Launched directly by the
+             instrumented test; not a launcher activity. -->
+        <activity
+            android:name=".ComposeFixtureActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
     </application>
 </manifest>

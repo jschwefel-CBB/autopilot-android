@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0",
+  "name": "compose-fixture",
+  "comment": "Reproduces the ScopeDOPE Compose find-after-type case: OutlinedTextFields in a non-scrollable AlertDialog whose contentDescription sits on a non-focusable android.view.View wrapper. Type into A, then B (the sibling lookup that was failing UiObjectNotFoundException post-type), then C; assert each value reads back. Runs against ComposeFixtureActivity in the bundled host app.",
+  "defaults": { "timeoutMs": 5000, "retryIntervalMs": 100, "skipInitialScroll": true },
+  "steps": [
+    { "id": "wait-fieldA", "action": "waitFor", "target": { "identifier": "fixtureFieldA" }, "args": { "present": true } },
+
+    { "id": "type-A", "action": "type", "target": { "identifier": "fixtureFieldA" }, "args": { "text": "alpha" } },
+    { "comment": "── the critical step: find fieldB immediately AFTER typing into fieldA (sibling View-wrapper-desc node) ──" },
+    { "id": "type-B", "action": "type", "target": { "identifier": "fixtureFieldB" }, "args": { "text": "bravo" } },
+    { "id": "type-C", "action": "type", "target": { "identifier": "fixtureFieldC" }, "args": { "text": "charlie" } },
+
+    { "id": "assert-A", "action": "assert", "target": { "identifier": "fixtureFieldA" }, "assert": { "property": "value", "op": "contains", "expected": "alpha" } },
+    { "id": "assert-B", "action": "assert", "target": { "identifier": "fixtureFieldB" }, "assert": { "property": "value", "op": "contains", "expected": "bravo" } },
+    { "id": "assert-C", "action": "assert", "target": { "identifier": "fixtureFieldC" }, "assert": { "property": "value", "op": "contains", "expected": "charlie" } }
+  ]
+}
