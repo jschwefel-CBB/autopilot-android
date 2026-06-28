@@ -12,7 +12,7 @@ RUNNER="com.autopilot.testhostapp.test/androidx.test.runner.AndroidJUnitRunner"
 
 # Test classes under the reliability gate. AutoPilotRunnerTest = the 78-step
 # unified plan (classic-View TestHostApp). ComposeFixtureTest = the Compose
-# OutlinedTextField-in-AlertDialog find-after-type case (the ScopeDOPE shape) —
+# OutlinedTextField-in-AlertDialog find-after-type case (the real-app shape) —
 # included so that Compose-specific behavior is caught HERE, not on a downstream
 # real-app run.
 CLASSES="com.autopilot.testhostapp.AutoPilotRunnerTest,com.autopilot.testhostapp.ComposeFixtureTest"

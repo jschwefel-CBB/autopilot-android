@@ -727,7 +727,7 @@ class AutoPilotRunner(
         val id = step.id ?: "?"
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
         // find→settle→click as a UNIT, retried on a stale handle: an animating target
-        // (e.g. the DOPE add-row sliding as rows are inserted) can move between the
+        // (e.g. an add-row input sliding as rows are inserted) can move between the
         // settle and the click() — especially under heavy host load — making the
         // handle stale (UiObjectNotFoundException). Re-find and retry rather than fail.
         var lastErr: String? = null
@@ -1000,7 +1000,7 @@ class AutoPilotRunner(
             //   - external → a window-token IMM-hide can NEVER work (targetContext is
             //     the TEST app's context, not the app-under-test's Activity — no
             //     window token), so for an external app it is a guaranteed no-op and
-            //     the keyboard stays up for the WHOLE run. That left the DOPE add-row
+            //     the keyboard stays up for the WHOLE run. That left the add-row
             //     keyboard up: as rows were added the add-row was pushed down and its
             //     leftmost field sat at/under the keyboard edge, so a
             //     per-field find thrashed the scroll and the field went stale mid-type
@@ -1067,7 +1067,7 @@ class AutoPilotRunner(
             // a real Compose app: typing into a dialog field → mInputShown=true → one Back
             // → mInputShown=false AND the dialog field still present. This
             // is what makes a keyboard-occluded bottom button readable, and what
-            // lets the DOPE add-row's leftmost field be reached after rows are added.
+            // lets the add-row's leftmost field be reached after rows are added.
             device.pressBack()
             Thread.sleep(200)
         } catch (_: Exception) {}
@@ -1297,7 +1297,7 @@ class AutoPilotRunner(
     // drops its click action but leaves enabled=true on the desc-matched node and
     // on the AccessibilityNodeInfo. The disabled state lives on the CLICKABLE
     // WRAPPER that contains the desc node: verified live against a real Compose app's
-    // addDopeButton — the desc node reads clickable=false/enabled=true, but its
+    // disabled add button — the desc node reads clickable=false/enabled=true, but its
     // clickable parent wrapper reads enabled=FALSE. So resolve enabled from that
     // clickable container:
     //   1. If the desc node is itself clickable, use its own enabled flag.
