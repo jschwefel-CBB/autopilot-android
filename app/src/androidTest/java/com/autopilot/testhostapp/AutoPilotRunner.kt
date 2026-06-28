@@ -237,6 +237,34 @@ class AutoPilotRunner(
         }
     }
 
+    // Wait until the desc-matched node's bounds stop moving (two consecutive equal
+    // reads) before acting on it. Real-ScopeDOPE finding (dope-list d200): after a
+    // DOPE row is added the list animates the add-row DOWNWARD; addDistField was
+    // matched at y=1313, then 1425, then 1633 over ~17s. A handle captured at one
+    // position goes stale as the row slides, so focus-tap lands on empty space and
+    // setText on the stale node throws UiObjectNotFoundException. Settling the
+    // layout first makes the find→act sequence atomic w.r.t. the animation.
+    // Returns the settled bounds, or null if the node never appears.
+    private fun waitForStableBounds(id: String, timeoutMs: Long = 4000L): android.graphics.Rect? {
+        var last: android.graphics.Rect? = null
+        var stableSince = 0L
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        while (SystemClock.uptimeMillis() < deadline) {
+            val now = try { device.findObject(By.desc(id))?.visibleBounds } catch (_: Throwable) { null }
+            if (now == null) { last = null; stableSince = 0L; Thread.sleep(80); continue }
+            if (now == last) {
+                // Bounds held across reads — require a short hold so a momentary
+                // pause mid-animation isn't mistaken for "settled".
+                if (stableSince == 0L) stableSince = SystemClock.uptimeMillis()
+                if (SystemClock.uptimeMillis() - stableSince >= 250L) return now
+            } else {
+                last = now; stableSince = 0L
+            }
+            Thread.sleep(80)
+        }
+        return last
+    }
+
     // Gate the scroll/swipe recovery: it helps ONLY when there is a scrollable
     // container to drive, OR the target exists in the tree but its bounds are
     // outside the viewport. If the target is absent AND there is no scrollable
@@ -645,12 +673,33 @@ class AutoPilotRunner(
     private fun doClick(step: Step): StepResult {
         val id = step.id ?: "?"
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
-        val el = findElement(sel)
-        if (!el.exists()) return StepResult(id, passed = false, skipped = false,
-            message = "click target '${sel.identifier ?: sel.role}' not found")
-        el.click()
-        Thread.sleep(300)
-        return StepResult(id, passed = true, skipped = false)
+        // find→settle→click as a UNIT, retried on a stale handle: an animating target
+        // (e.g. the DOPE add-row sliding as rows are inserted) can move between the
+        // settle and the click() — especially under heavy host load — making the
+        // handle stale (UiObjectNotFoundException). Re-find and retry rather than fail.
+        var lastErr: String? = null
+        repeat(3) {
+            try {
+                var el = findElement(sel)
+                if (!el.exists()) {
+                    lastErr = "click target '${sel.identifier ?: sel.role}' not found"
+                    return@repeat
+                }
+                sel.identifier?.let { id2 ->
+                    waitForStableBounds(id2)
+                    val fresh = resolveElement(sel)
+                    if (fresh.exists()) el = fresh
+                }
+                el.click()
+                Thread.sleep(300)
+                return StepResult(id, passed = true, skipped = false)
+            } catch (e: Throwable) {
+                lastErr = "${e.javaClass.simpleName}: ${e.message}"
+                device.waitForIdle(800)
+                Thread.sleep(200)
+            }
+        }
+        return StepResult(id, passed = false, skipped = false, message = lastErr ?: "click failed")
     }
 
     private fun doPress(step: Step): StepResult {
@@ -766,28 +815,55 @@ class AutoPilotRunner(
         val sel = step.target ?: return StepResult(id, passed = false, skipped = false, message = "no target")
         val text = step.args?.text ?: return StepResult(id, passed = false, skipped = false, message = "no text arg")
         val clear = step.args.clear ?: false
-        val matched = findElement(sel)
-        // Fail loudly if the target field was never found — do NOT fall through to
-        // focusEditableField, which would type into whatever field currently holds
-        // focus (the CI scroll-fixture bug: scrollFieldLow was below the fold and
-        // NOT composed, so the find failed, yet text was typed into the focused top
-        // field and the step falsely "passed").
-        if (!matched.exists()) {
-            return StepResult(id, passed = false, skipped = false,
-                message = "type target '${sel.identifier ?: sel.role}' not found")
-        }
-        // Compose: the desc node is a wrapper; tapping its center moves platform
-        // focus to the real (separate) EditText. Drive input against whatever is
-        // then focused. For a classic-View EditText the matched node IS the field,
-        // so this still works (it is its own focused node).
-        val field = focusEditableField(matched)
-        if (clear) { field?.setText("") ?: matched.setText("") ; Thread.sleep(50) }
         val finalText = text.replace("\\n", "\n")
-        instrumentation.sendStringSync(finalText)
-        Thread.sleep(400)
-        closeIme()
-        device.waitForIdle(2000)  // let the Compose recompose settle before the next lookup
-        return StepResult(id, passed = true, skipped = false)
+
+        // The find→settle→focus→type sequence is retried as a UNIT. Real-ScopeDOPE
+        // finding (dope-list d200): after a DOPE row is added the add-row animates
+        // DOWNWARD, so a handle captured for addDistField goes stale mid-type and
+        // setText throws UiObjectNotFoundException. waitForStableBounds settles it
+        // first, but under heavy host CPU load (e.g. a parallel build) the animation
+        // can outlast the settle window — so if an op still throws on a stale node,
+        // re-find from scratch and try again rather than failing the step. 3 attempts.
+        var lastErr: String? = null
+        repeat(3) { attempt ->
+            try {
+                var matched = findElement(sel)
+                // Fail loudly if the target was never found — do NOT fall through to
+                // focusEditableField, which would type into whatever field holds focus
+                // (the CI scroll-fixture bug: a below-fold field was not composed, the
+                // find failed, yet text was typed into the focused top field and the
+                // step falsely "passed").
+                if (!matched.exists()) {
+                    lastErr = "type target '${sel.identifier ?: sel.role}' not found"
+                    return@repeat
+                }
+                // Wait for the node to stop moving, then re-resolve a FRESH handle at
+                // its final position before focusing/typing.
+                sel.identifier?.let { id2 ->
+                    waitForStableBounds(id2)
+                    val fresh = resolveElement(sel)
+                    if (fresh.exists()) matched = fresh
+                }
+                // Compose: the desc node is a wrapper; tapping its center moves
+                // platform focus to the real (separate) EditText. For a classic-View
+                // EditText the matched node IS the field (its own focused node).
+                val field = focusEditableField(matched)
+                if (clear) { field?.setText("") ?: matched.setText("") ; Thread.sleep(50) }
+                instrumentation.sendStringSync(finalText)
+                Thread.sleep(400)
+                closeIme()
+                device.waitForIdle(2000)  // let the Compose recompose settle
+                return StepResult(id, passed = true, skipped = false)
+            } catch (e: Throwable) {
+                // Stale handle (node moved/recomposed between find and act). Re-find
+                // and retry; settle a moment so the next find lands on a stable tree.
+                lastErr = "${e.javaClass.simpleName}: ${e.message}"
+                device.waitForIdle(800)
+                Thread.sleep(200)
+            }
+        }
+        return StepResult(id, passed = false, skipped = false,
+            message = lastErr ?: "type failed")
     }
 
     // ── setValue ─────────────────────────────────────────────────────────────
@@ -853,26 +929,33 @@ class AutoPilotRunner(
             // dialog to dismiss) RELIES on ESC to drop the keyboard; without it the
             // keyboard stays up and every later find thrashes recovery. So:
             //   - host app  → ESC (safe + reliably drops the keyboard)
-            //   - external  → NO ESC; only the dialog-safe IMM-hide (which is a
-            //                 no-op when targetContext has no focused-view token,
-            //                 i.e. external apps — that's acceptable, recovery
-            //                 handles occlusion).
             if (drivingHostApp) {
                 device.executeShellCommand("input keyevent 111")  // ESCAPE — safe on classic Views
                 Thread.sleep(150)
                 return
             }
-            instrumentation.runOnMainSync {
-                try {
-                    val imm = instrumentation.targetContext
-                        .getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                        as? android.view.inputmethod.InputMethodManager
-                    val token = (instrumentation.targetContext as? android.app.Activity)
-                        ?.currentFocus?.windowToken
-                    if (token != null) imm?.hideSoftInputFromWindow(token, 0)
-                } catch (_: Throwable) {}
+            //   - external → a window-token IMM-hide can NEVER work (targetContext is
+            //     the TEST app's context, not the app-under-test's Activity — no
+            //     window token), so for an external app it is a guaranteed no-op and
+            //     the keyboard stays up for the WHOLE run. That left the DOPE add-row
+            //     keyboard up: as rows were added the add-row was pushed down and its
+            //     leftmost field (addDistField) sat at/under the keyboard edge, so a
+            //     per-field find thrashed the scroll and the field went stale mid-type
+            //     (d200 UiObjectNotFoundException on real ScopeDOPE).
+            //
+            //   So drop the IME out-of-process with a Back press — but ONLY while the
+            //   IME is actually shown. EMPIRICALLY VERIFIED on real ScopeDOPE: when
+            //   mInputShown=true, Android routes the first Back to the IME window to
+            //   hide itself; the app (even a Compose AlertDialog like Add-Custom-Ammo)
+            //   never sees it, so the dialog STAYS OPEN and the keyboard drops. The
+            //   old "Back always closes the dialog" assumption only held when Back was
+            //   pressed with the IME already DOWN — gating on mInputShown makes it
+            //   dialog-safe. If the IME is not shown, do nothing (a stray Back would
+            //   navigate/close the dialog).
+            if (isImeShown()) {
+                device.pressBack()
+                Thread.sleep(200)
             }
-            Thread.sleep(200)
         } catch (_: Exception) {}
     }
 
@@ -895,41 +978,35 @@ class AutoPilotRunner(
             // NOTE: do NOT send KEYCODE_ESCAPE here — Compose AlertDialogs treat ESC
             // as DISMISS, so it closes the dialog (the real-ScopeDOPE bug: the assert
             // on ammoSaveButton entered recovery, ESCAPE fired, the Add-Custom-Ammo
-            // dialog closed, every later field/button became "not found"). Hide the
-            // IME only via InputMethodManager.hideSoftInputFromWindow (no key/back).
-            instrumentation.runOnMainSync {
-                try {
-                    val imm = instrumentation.targetContext
-                        .getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                        as? android.view.inputmethod.InputMethodManager
-                    val token = instrumentation.targetContext
-                        .let { (it as? android.app.Activity)?.currentFocus?.windowToken }
-                    if (token != null) imm?.hideSoftInputFromWindow(token, 0)
-                } catch (_: Exception) {}
+            // dialog closed, every later field/button became "not found").
+            //
+            // On the host app: IMM-hide via the real Activity window token works.
+            if (drivingHostApp) {
+                instrumentation.runOnMainSync {
+                    try {
+                        val imm = instrumentation.targetContext
+                            .getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                            as? android.view.inputmethod.InputMethodManager
+                        val token = (instrumentation.targetContext as? android.app.Activity)
+                            ?.currentFocus?.windowToken
+                        if (token != null) imm?.hideSoftInputFromWindow(token, 0)
+                    } catch (_: Exception) {}
+                }
+                Thread.sleep(150)
+                return
             }
-            Thread.sleep(150)
-            if (!isImeShown()) return
-            // For an EXTERNAL app the IMM-hide above is a no-op (targetContext isn't
-            // its Activity, so no window token). Drop the keyboard by tapping a
-            // neutral spot near the top of the screen — the dialog title/empty area,
-            // above any input field — which defocuses the current field and dismisses
-            // the IME WITHOUT a Back/ESC (so a modal dialog stays open). This is what
-            // lets the keyboard-covered ammoSaveButton become visible to assert on.
-            // Do not tap to drop the keyboard: empirically (real ScopeDOPE) there is
-            // NO inert tap spot on this full-screen Compose form that hides the IME
-            // without also navigating away/closing the form — tapping outside the
-            // inset fields closes it; tapping the title doesn't defocus; Back/ESC
-            // navigate. This is the documented out-of-process limit. forceDismissIme
-            // therefore only does the safe IMM-hide above (a no-op for external
-            // apps). A control that stays keyboard-occluded (e.g. a Save button at
-            // the form's bottom) cannot be read while the IME is up — the plan must
-            // sequence so the keyboard is down before asserting it (e.g. assert it
-            // before typing, or after an action that drops focus).
-            // Do NOT pressBack even when the IME is still up: a Compose AlertDialog
-            // closes on Back regardless of the keyboard (verified on real ScopeDOPE —
-            // it dismissed the dialog and later type-over-bc/fix-bc failed). The
-            // neutral tap is the only dialog-safe keyboard dismissal; if it doesn't
-            // drop the IME, proceed and let the caller's resolve handle it.
+            // EXTERNAL app: the IMM-hide can't work (targetContext is the TEST app's
+            // context, not the app-under-test's Activity → no window token). Drop the
+            // keyboard with a Back press, which is SAFE here because we only do it
+            // while the IME is shown (checked above): Android routes the first Back
+            // to the IME window to hide itself, so a Compose AlertDialog (e.g.
+            // Add-Custom-Ammo) never sees it and stays open. EMPIRICALLY VERIFIED on
+            // real ScopeDOPE: typing into caliberField → mInputShown=true → one Back
+            // → mInputShown=false AND caliberField (the dialog) still present. This
+            // is what makes the keyboard-occluded ammoSaveButton readable, and what
+            // lets the DOPE add-row's leftmost field be reached after rows are added.
+            device.pressBack()
+            Thread.sleep(200)
         } catch (_: Exception) {}
     }
 
@@ -1127,8 +1204,28 @@ class AutoPilotRunner(
     }
 
     private fun assertEnabled(id: String, sel: SelectorJson, op: String, expected: String): StepResult {
-        val element = findElement(sel)
-        return compare(id, resolveEnabled(sel, element).toString(), op, expected)
+        // Poll up to 5s for the enabled state to satisfy the condition (mirrors
+        // assertValue). Real-ScopeDOPE finding (dope-addrow/dope-numeric-input
+        // assert-add-enabled-valid, actual='false'): after typing a comma decimal
+        // ("1,5") the field value normalizes to 1.5 and the Add button's derived
+        // enabled state flips true — but on a single read right after the type
+        // (especially under host CPU load) the recompose that re-enables the button
+        // has not landed yet, so it reads stale 'false'. A one-shot read raced it;
+        // polling lets the derived state settle, exactly as the value asserts do.
+        val deadline = SystemClock.uptimeMillis() + 5000L
+        var actual = resolveEnabled(sel, findElement(sel)).toString()
+        while (SystemClock.uptimeMillis() < deadline) {
+            val satisfies = when (op) {
+                "equals"    -> actual == expected
+                "notEquals" -> actual != expected
+                else        -> true
+            }
+            if (satisfies) break
+            Thread.sleep(100)
+            device.waitForIdle(300)
+            actual = resolveEnabled(sel, findElement(sel)).toString()
+        }
+        return compare(id, actual, op, expected)
     }
 
     // Determine whether a control is "enabled", correctly handling Jetpack Compose.
