@@ -19,7 +19,7 @@ import java.io.InputStreamReader
  *    this module's own CI).
  *  - External mode: given an explicit plan source (a file path on the device)
  *    and/or a target package, it loads that plan and drives that EXTERNAL app
- *    (e.g. com.coldboreballisticsllc.scopedope). UiAutomator is system-wide, so
+ *    (any installed package). UiAutomator is system-wide, so
  *    it can query and act across app boundaries; the only thing the runner must
  *    NOT do is assume the app under test is its own instrumentation target.
  *
@@ -197,7 +197,7 @@ class AutoPilotRunner(
     // failed find — the decisive diagnostic for the find-after-type gap (the
     // external `uiautomator dump` view may differ from what the in-run query sees
     // per-query, e.g. cache/recompose state). Logged under AutoPilotRunner with a
-    // FIND-FAIL-DUMP marker so CI logs / logcat can be grepped. (DOPE-free.)
+    // FIND-FAIL-DUMP marker so CI logs / logcat can be grepped.
     private fun dumpFindFailure(sel: SelectorJson) {
         try {
             val id = sel.identifier ?: sel.within?.identifier
@@ -239,8 +239,8 @@ class AutoPilotRunner(
     }
 
     // Wait until the desc-matched node's bounds stop moving (two consecutive equal
-    // reads) before acting on it. Real-ScopeDOPE finding (dope-list d200): after a
-    // DOPE row is added the list animates the add-row DOWNWARD; addDistField was
+    // reads) before acting on it. Real-app finding (animating list add-row): after a
+    // a list row is added the list animates the input row DOWNWARD; the first input field was
     // matched at y=1313, then 1425, then 1633 over ~17s. A handle captured at one
     // position goes stale as the row slides, so focus-tap lands on empty space and
     // setText on the stale node throws UiObjectNotFoundException. Settling the
@@ -269,7 +269,7 @@ class AutoPilotRunner(
     // Gate the scroll/swipe recovery: it helps ONLY when there is a scrollable
     // container to drive, OR the target exists in the tree but its bounds are
     // outside the viewport. If the target is absent AND there is no scrollable
-    // container (a fixed dialog — the ammo Add-Custom-Ammo case), swiping moves
+    // container (a fixed dialog — a fixed modal-dialog case), swiping moves
     // nothing and just wastes time (and can mask a find-after-type miss), so skip.
     private fun shouldAttemptScroll(sel: SelectorJson): Boolean {
         return try {
@@ -281,7 +281,7 @@ class AutoPilotRunner(
         } catch (_: Throwable) { false }
     }
 
-    // (DOPE-76) Compose-friendly scroll-into-view. Compose scroll containers
+    // Compose-friendly scroll-into-view. Compose scroll containers
     // (Modifier.verticalScroll / LazyColumn) do NOT expose scrollable="true" on a
     // recognizable android.widget.ScrollView, so By.scrollable(true) often finds
     // nothing and the legacy UiScrollable path has no handle. So:
@@ -355,7 +355,7 @@ class AutoPilotRunner(
             // (virtualized → not-yet-composed) item can't be scrolled to. Dismiss the
             // keyboard first, then drive the scroll.
             //
-            // CRITICAL (real-ScopeDOPE finding): each UiObject2.scroll() blocks on an
+            // CRITICAL (Real-app finding): each UiObject2.scroll() blocks on an
             // a11y event; running it 15+15× per not-found target — especially when the
             // target is genuinely ABSENT (e.g. a wrong id, or a control not on this
             // screen) — hammers UiAutomation until it dies (DeadObjectException →
@@ -870,9 +870,9 @@ class AutoPilotRunner(
         val clear = step.args.clear ?: false
         val finalText = text.replace("\\n", "\n")
 
-        // The find→settle→focus→type sequence is retried as a UNIT. Real-ScopeDOPE
-        // finding (dope-list d200): after a DOPE row is added the add-row animates
-        // DOWNWARD, so a handle captured for addDistField goes stale mid-type and
+        // The find→settle→focus→type sequence is retried as a UNIT. Real-app
+        // finding (animating list row): after a list row is added the input row animates
+        // DOWNWARD, so a handle captured for the input field goes stale mid-type and
         // setText throws UiObjectNotFoundException. waitForStableBounds settles it
         // first, but under heavy host CPU load (e.g. a parallel build) the animation
         // can outlast the settle window — so if an op still throws on a stale node,
@@ -974,10 +974,10 @@ class AutoPilotRunner(
     // forceDismissIme(), invoked only on the rare not-found recovery path.
     private fun closeIme() {
         try {
-            // CRITICAL (real-ScopeDOPE finding): KEYCODE_ESCAPE after a type was
+            // CRITICAL (Real-app finding): KEYCODE_ESCAPE after a type was
             // DISMISSING THE COMPOSE AlertDialog on the EXTERNAL app — Compose
-            // dialogs treat ESC as dismiss, so typing into caliberField closed the
-            // whole Add-Custom-Ammo form and every later field was "not found".
+            // dialogs treat ESC as dismiss, so typing into the first field closed the
+            // whole modal form and every later field was "not found".
             // BUT the bundled host app (TestHostApp, classic Views — no Compose
             // dialog to dismiss) RELIES on ESC to drop the keyboard; without it the
             // keyboard stays up and every later find thrashes recovery. So:
@@ -1002,14 +1002,14 @@ class AutoPilotRunner(
             //     window token), so for an external app it is a guaranteed no-op and
             //     the keyboard stays up for the WHOLE run. That left the DOPE add-row
             //     keyboard up: as rows were added the add-row was pushed down and its
-            //     leftmost field (addDistField) sat at/under the keyboard edge, so a
+            //     leftmost field sat at/under the keyboard edge, so a
             //     per-field find thrashed the scroll and the field went stale mid-type
-            //     (d200 UiObjectNotFoundException on real ScopeDOPE).
+            //     (d200 UiObjectNotFoundException on a real app).
             //
             //   So drop the IME out-of-process with a Back press — but ONLY while the
-            //   IME is actually shown. EMPIRICALLY VERIFIED on real ScopeDOPE: when
+            //   IME is actually shown. EMPIRICALLY VERIFIED on a real Compose app: when
             //   mInputShown=true, Android routes the first Back to the IME window to
-            //   hide itself; the app (even a Compose AlertDialog like Add-Custom-Ammo)
+            //   hide itself; the app (even a Compose AlertDialog)
             //   never sees it, so the dialog STAYS OPEN and the keyboard drops. The
             //   old "Back always closes the dialog" assumption only held when Back was
             //   pressed with the IME already DOWN — gating on mInputShown makes it
@@ -1025,12 +1025,12 @@ class AutoPilotRunner(
     // Stronger IME dismissal for the not-found recovery path (a covered field):
     // if the keyboard is still shown after ESCAPE, a GUARDED Back press hides it —
     // guarded by isImeShown() so Back consumes the keyboard rather than navigating
-    // (never a stray Back that pops a dialog/screen). (DOPE-70/71/72/73) Only
+    // (never a stray Back that pops a dialog/screen). Only
     // called when an element wasn't found, NOT after every type — so the heavier
     // dumpsys check here is not on the hot path.
-    // (DOPE-70/71/72/73) NON-DESTRUCTIVE IME dismissal for the not-found recovery
+    // NON-DESTRUCTIVE IME dismissal for the not-found recovery
     // path. MUST NOT use pressBack: a Back press inside a modal (e.g. the ammo
-    // Add-Custom-Ammo AlertDialog) closes the WHOLE DIALOG, not the keyboard —
+    // modal AlertDialog) closes the WHOLE DIALOG, not the keyboard —
     // that was the Round-3 regression. Try ESCAPE, then ask the InputMethodManager
     // to hide the IME (no key/back event). If the keyboard still won't hide, just
     // proceed: an un-occluded field is still queryable; only a genuinely
@@ -1039,8 +1039,8 @@ class AutoPilotRunner(
         try {
             if (!isImeShown()) return
             // NOTE: do NOT send KEYCODE_ESCAPE here — Compose AlertDialogs treat ESC
-            // as DISMISS, so it closes the dialog (the real-ScopeDOPE bug: the assert
-            // on ammoSaveButton entered recovery, ESCAPE fired, the Add-Custom-Ammo
+            // as DISMISS, so it closes the dialog (the real-app bug: the assert
+            // on a modal-dialog Save button entered recovery, ESCAPE fired, the
             // dialog closed, every later field/button became "not found").
             //
             // On the host app: IMM-hide via the real Activity window token works.
@@ -1063,10 +1063,10 @@ class AutoPilotRunner(
             // keyboard with a Back press, which is SAFE here because we only do it
             // while the IME is shown (checked above): Android routes the first Back
             // to the IME window to hide itself, so a Compose AlertDialog (e.g.
-            // Add-Custom-Ammo) never sees it and stays open. EMPIRICALLY VERIFIED on
-            // real ScopeDOPE: typing into caliberField → mInputShown=true → one Back
-            // → mInputShown=false AND caliberField (the dialog) still present. This
-            // is what makes the keyboard-occluded ammoSaveButton readable, and what
+            // modal dialog) never sees it and stays open. EMPIRICALLY VERIFIED on
+            // a real Compose app: typing into a dialog field → mInputShown=true → one Back
+            // → mInputShown=false AND the dialog field still present. This
+            // is what makes a keyboard-occluded bottom button readable, and what
             // lets the DOPE add-row's leftmost field be reached after rows are added.
             device.pressBack()
             Thread.sleep(200)
@@ -1268,7 +1268,7 @@ class AutoPilotRunner(
 
     private fun assertEnabled(id: String, sel: SelectorJson, op: String, expected: String): StepResult {
         // Poll up to 5s for the enabled state to satisfy the condition (mirrors
-        // assertValue). Real-ScopeDOPE finding (dope-addrow/dope-numeric-input
+        // assertValue). Real-app finding (an add-row + numeric-input form
         // assert-add-enabled-valid, actual='false'): after typing a comma decimal
         // ("1,5") the field value normalizes to 1.5 and the Add button's derived
         // enabled state flips true — but on a single read right after the type
@@ -1292,11 +1292,11 @@ class AutoPilotRunner(
     }
 
     // Determine whether a control is "enabled", correctly handling Jetpack Compose.
-    // (DOPE-64/87/67/68/70) A Compose control disabled via
+    // A Compose control disabled via
     // Modifier.clickable(enabled=false) + semantics{ role=Button; disabled() }
     // drops its click action but leaves enabled=true on the desc-matched node and
     // on the AccessibilityNodeInfo. The disabled state lives on the CLICKABLE
-    // WRAPPER that contains the desc node: verified live against ScopeDOPE's
+    // WRAPPER that contains the desc node: verified live against a real Compose app's
     // addDopeButton — the desc node reads clickable=false/enabled=true, but its
     // clickable parent wrapper reads enabled=FALSE. So resolve enabled from that
     // clickable container:

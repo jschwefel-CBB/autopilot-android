@@ -29,7 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
- * Compose test fixtures reproducing the ScopeDOPE Compose automation shapes under
+ * Compose test fixtures reproducing the real Compose automation shapes under
  * AutoPilot's own CI 5x gate. Two modes via the "mode" intent extra:
  *
  *  - "dialog" (default): a NON-scrollable AlertDialog of OutlinedTextFields whose
@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
  *
  *  - "scroll": a SCROLLABLE LazyColumn of MANY OutlinedTextFields with imePadding,
  *    so a lower field is below the fold once the keyboard is up. This reproduces the
- *    real ScopeDOPE ammo "Add Custom Ammo" shape that the non-scrollable dialog
+ *    a real Compose app's below-the-fold-field shape that the non-scrollable dialog
  *    fixture did NOT — research's #1 hypothesis: a LazyColumn item below the fold is
  *    NOT composed, so it has no accessibility node and no wait can find it. The
  *    runner-side FIND-FAIL-DUMP (in AutoPilotRunner) reveals whether the node is
@@ -70,7 +70,7 @@ class ComposeFixtureActivity : ComponentActivity() {
  *
  * NOTE: this must be set in the APP UNDER TEST — an out-of-process UiAutomator run
  * cannot enable it for an app it does not control. Real Compose apps that want
- * reliable out-of-process scrolling (e.g. ScopeDOPE) must add the same override.
+ * reliable out-of-process scrolling (any installed app) must add the same override.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -121,14 +121,14 @@ private fun FixtureDialog() {
 
 /**
  * Recomposition-churn variant: a NON-scrolling dialog (fields present + visible,
- * like the real ScopeDOPE ammo dialog per the external dump) but every keystroke
+ * like a real Compose modal dialog per the external dump) but every keystroke
  * triggers HEAVY recomposition — cross-field validation + a derived "valid" state +
  * a recomposition counter shown in each label — producing a busy accessibility
  * event stream (research #1b). This targets the "present-but-stale" mechanism the
  * simple FixtureDialog (trivial state, idles instantly) does NOT reproduce: type
  * into churnFieldA, then immediately find sibling churnFieldB while the tree is
  * still churning. If the runner misses churnFieldB, the FIND-FAIL-DUMP shows
- * present-but-stale (cache) — the actual ScopeDOPE failure mode, reproduced.
+ * present-but-stale (cache) — the actual real-app failure mode, reproduced.
  */
 @Composable
 private fun ChurnDialog() {
@@ -174,7 +174,7 @@ private fun ChurnDialog() {
  * Wrapper variant: the contentDescription is set on a Column WRAPPING each
  * OutlinedTextField (not on the field itself), so ContentDescription merges onto
  * the wrapper ancestor — a non-focusable android.view.View DISTINCT from the inner
- * EditText. This is ScopeDOPE's actual shape (their dump showed the desc on a
+ * EditText. This is a real Compose app's shape (a dump showed the desc on a
  * separate View node, not the EditText), which the other fixtures (desc directly
  * on the field) do NOT reproduce. find-after-type: type wrapperFieldA, then find
  * sibling wrapperFieldB by the wrapper desc and read its value (must come from the
@@ -199,7 +199,7 @@ private fun WrapperDialog() {
         text = {
             Column(modifier = Modifier.imePadding().padding(4.dp)) {
                 // desc on the WRAPPING Column, NOT on the field → merges onto a
-                // non-field ancestor View (ScopeDOPE shape).
+                // non-field ancestor View (real-app shape).
                 Column(modifier = Modifier.descTag("wrapperFieldA")) {
                     OutlinedTextField(a, { a = it }, label = { Text("A") })
                 }

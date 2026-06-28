@@ -16,7 +16,7 @@ import org.junit.runner.RunWith
  *
  *  - composeFindAfterTypePlan: non-scrollable AlertDialog, sibling find-after-type.
  *  - composeScrollFindPlan: scrollable LazyColumn, find a below-the-fold field after
- *    typing — reproduces the real ScopeDOPE ammo-dialog shape. On a failed find the
+ *    typing — reproduces a real Compose app's scrollable-form shape. On a failed find the
  *    runner logs FIND-FAIL-DUMP (what the runner's UiAutomation sees vs external).
  */
 @RunWith(AndroidJUnit4::class)

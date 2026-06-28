@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "name": "compose-wrapper-fixture",
-  "comment": "ScopeDOPE shape: contentDescription on a Column WRAPPING each OutlinedTextField (merges onto a non-field ancestor View, distinct from the inner EditText). type A then find+type sibling B/C; assert each value reads from the inner EditText. If the wrapper-merge breaks find-after-type or value-read, this reproduces ScopeDOPE's actual failure.",
+  "comment": "Real-app shape: contentDescription on a Column WRAPPING each OutlinedTextField (merges onto a non-field ancestor View, distinct from the inner EditText). type A then find+type sibling B/C; assert each value reads from the inner EditText. If the wrapper-merge breaks find-after-type or value-read, this reproduces a real Compose app's actual failure.",
   "defaults": { "timeoutMs": 5000, "retryIntervalMs": 100, "skipInitialScroll": true },
   "steps": [
     { "id": "wait-a", "action": "waitFor", "target": { "identifier": "wrapperFieldA" }, "args": { "present": true } },

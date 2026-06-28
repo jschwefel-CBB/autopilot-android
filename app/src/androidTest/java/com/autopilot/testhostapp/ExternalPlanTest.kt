@@ -9,7 +9,7 @@ import org.junit.runner.RunWith
 
 /**
  * Runs an EXTERNAL AutoPilot plan against an EXTERNAL app — the entry point that
- * makes the Android agent usable with any installed app (e.g. ScopeDOPE), not
+ * makes the Android agent usable with any installed app (any installed app), not
  * just the bundled TestHostApp.
  *
  * Invoke via adb, passing the on-device plan path and (optionally) the target

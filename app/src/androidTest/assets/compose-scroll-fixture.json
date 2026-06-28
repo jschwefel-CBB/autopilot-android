@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "name": "compose-scroll-fixture",
-  "comment": "Reproduces the real ScopeDOPE ammo-dialog shape the non-scrollable fixture did NOT: a scrollable LazyColumn where the target field (scrollFieldLow) is below the fold once the keyboard is up. Type scrollFieldA (top), then type+assert scrollFieldLow (deep in the list). If the runner can't find scrollFieldLow, the runner-side FIND-FAIL-DUMP shows whether its node is absent (not composed) or present-but-stale.",
+  "comment": "Reproduces a real Compose app's scrollable-form shape the non-scrollable fixture did NOT: a scrollable LazyColumn where the target field (scrollFieldLow) is below the fold once the keyboard is up. Type scrollFieldA (top), then type+assert scrollFieldLow (deep in the list). If the runner can't find scrollFieldLow, the runner-side FIND-FAIL-DUMP shows whether its node is absent (not composed) or present-but-stale.",
   "defaults": { "timeoutMs": 5000, "retryIntervalMs": 100, "skipInitialScroll": true },
   "steps": [
     { "id": "wait-top", "action": "waitFor", "target": { "identifier": "scrollFieldA" }, "args": { "present": true } },
