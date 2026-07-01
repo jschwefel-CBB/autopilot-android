@@ -61,7 +61,31 @@ class AutoPilotRunner(
             // Default bundled mode: the unified plan packaged in this test APK.
             else -> InputStreamReader(instrumentation.context.assets.open("test-all-capabilities.json"))
         }
-        return Gson().fromJson(reader, Plan::class.java)
+        val plan = Gson().fromJson(reader, Plan::class.java)
+        validateLevels(plan)
+        return plan
+    }
+
+    /**
+     * Enforce the REQUIRED per-step `level` field (parity with autopilot-core).
+     * Gson silently leaves a missing field null, so a missing or invalid `level`
+     * is caught here with a clear, step-scoped message — readable by a human AND
+     * an AI coding agent generating plans.
+     */
+    private fun validateLevels(plan: Plan) {
+        plan.steps.forEachIndexed { i, step ->
+            // Comment-only steps (no action) are annotations the runner skips —
+            // they carry no coverage meaning, so they are exempt from `level`.
+            if (step.action == null) return@forEachIndexed
+            val id = step.id ?: "#$i"
+            val raw = step.level
+                ?: throw IllegalArgumentException(
+                    "step $id: missing required field `level` — use ${StepLevel.validList}")
+            if (StepLevel.from(raw) == null) {
+                throw IllegalArgumentException(
+                    "step $id: invalid level '$raw' — use ${StepLevel.validList}")
+            }
+        }
     }
 
     /** Resolve which package to drive: explicit override > plan target > host app. */

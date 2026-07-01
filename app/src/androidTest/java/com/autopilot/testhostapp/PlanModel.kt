@@ -32,10 +32,30 @@ data class PlanDefaults(
     val skipInitialScroll: Boolean? = null
 )
 
+/**
+ * Coverage tier of a step: cumulative happyPath ⊂ integrationSuite ⊂ tryToBreakIt.
+ * Mirrors autopilot-core's StepLevel. A LABEL — it does not invert pass/fail.
+ * Parsed as a raw String on [Step] (Gson) and validated in the runner; this enum
+ * carries the valid set and rank.
+ */
+enum class StepLevel(val raw: String, val rank: Int) {
+    HAPPY_PATH("happyPath", 0),
+    INTEGRATION_SUITE("integrationSuite", 1),
+    TRY_TO_BREAK_IT("tryToBreakIt", 2);
+
+    companion object {
+        fun from(raw: String?): StepLevel? = entries.firstOrNull { it.raw == raw }
+        val validList: String get() = entries.joinToString(", ") { it.raw }
+    }
+}
+
 data class Step(
     val id: String? = null,
     val comment: String? = null,
     val action: String? = null,
+    // REQUIRED coverage tier. Gson leaves it null when absent, so the runner
+    // validates it (see AutoPilotRunner.loadPlan) to enforce parity with core.
+    val level: String? = null,
     val target: SelectorJson? = null,
     val args: ArgsJson? = null,
     // "assert" is a reserved keyword in Kotlin; use SerializedName to map from JSON

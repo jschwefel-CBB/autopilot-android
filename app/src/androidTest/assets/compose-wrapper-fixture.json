@@ -1,15 +1,15 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "name": "compose-wrapper-fixture",
   "comment": "Real-app shape: contentDescription on a Column WRAPPING each OutlinedTextField (merges onto a non-field ancestor View, distinct from the inner EditText). type A then find+type sibling B/C; assert each value reads from the inner EditText. If the wrapper-merge breaks find-after-type or value-read, this reproduces a real Compose app's actual failure.",
   "defaults": { "timeoutMs": 5000, "retryIntervalMs": 100, "skipInitialScroll": true },
   "steps": [
-    { "id": "wait-a", "action": "waitFor", "target": { "identifier": "wrapperFieldA" }, "args": { "present": true } },
-    { "id": "type-a", "action": "type", "target": { "identifier": "wrapperFieldA" }, "args": { "text": "wraa" } },
-    { "id": "type-b", "action": "type", "target": { "identifier": "wrapperFieldB" }, "args": { "text": "wrab" } },
-    { "id": "type-c", "action": "type", "target": { "identifier": "wrapperFieldC" }, "args": { "text": "wrac" } },
-    { "id": "assert-a", "action": "assert", "target": { "identifier": "wrapperFieldA" }, "assert": { "property": "value", "op": "contains", "expected": "wraa" } },
-    { "id": "assert-b", "action": "assert", "target": { "identifier": "wrapperFieldB" }, "assert": { "property": "value", "op": "contains", "expected": "wrab" } },
-    { "id": "assert-c", "action": "assert", "target": { "identifier": "wrapperFieldC" }, "assert": { "property": "value", "op": "contains", "expected": "wrac" } }
+    { "id": "wait-a", "action": "waitFor", "level": "happyPath", "target": { "identifier": "wrapperFieldA" }, "args": { "present": true } },
+    { "id": "type-a", "action": "type", "level": "happyPath", "target": { "identifier": "wrapperFieldA" }, "args": { "text": "wraa" } },
+    { "id": "type-b", "action": "type", "level": "happyPath", "target": { "identifier": "wrapperFieldB" }, "args": { "text": "wrab" } },
+    { "id": "type-c", "action": "type", "level": "happyPath", "target": { "identifier": "wrapperFieldC" }, "args": { "text": "wrac" } },
+    { "id": "assert-a", "action": "assert", "level": "happyPath", "target": { "identifier": "wrapperFieldA" }, "assert": { "property": "value", "op": "contains", "expected": "wraa" } },
+    { "id": "assert-b", "action": "assert", "level": "happyPath", "target": { "identifier": "wrapperFieldB" }, "assert": { "property": "value", "op": "contains", "expected": "wrab" } },
+    { "id": "assert-c", "action": "assert", "level": "happyPath", "target": { "identifier": "wrapperFieldC" }, "assert": { "property": "value", "op": "contains", "expected": "wrac" } }
   ]
 }
