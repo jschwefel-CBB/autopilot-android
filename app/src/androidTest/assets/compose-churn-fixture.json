@@ -1,17 +1,17 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "name": "compose-churn-fixture",
   "comment": "Non-scrolling dialog with HEAVY per-keystroke recomposition (cross-field validation + derived state in every label). Targets present-but-stale find-after-type: type A then immediately find sibling B/C/D while the tree churns. If a find misses, the runner FIND-FAIL-DUMP shows present-but-stale.",
   "defaults": { "timeoutMs": 5000, "retryIntervalMs": 100, "skipInitialScroll": true },
   "steps": [
-    { "id": "wait-a", "action": "waitFor", "target": { "identifier": "churnFieldA" }, "args": { "present": true } },
-    { "id": "type-a", "action": "type", "target": { "identifier": "churnFieldA" }, "args": { "text": "aaa" } },
-    { "id": "type-b", "action": "type", "target": { "identifier": "churnFieldB" }, "args": { "text": "bbb" } },
-    { "id": "type-c", "action": "type", "target": { "identifier": "churnFieldC" }, "args": { "text": "ccc" } },
-    { "id": "type-d", "action": "type", "target": { "identifier": "churnFieldD" }, "args": { "text": "ddd" } },
-    { "id": "assert-a", "action": "assert", "target": { "identifier": "churnFieldA" }, "assert": { "property": "value", "op": "contains", "expected": "aaa" } },
-    { "id": "assert-b", "action": "assert", "target": { "identifier": "churnFieldB" }, "assert": { "property": "value", "op": "contains", "expected": "bbb" } },
-    { "id": "assert-c", "action": "assert", "target": { "identifier": "churnFieldC" }, "assert": { "property": "value", "op": "contains", "expected": "ccc" } },
-    { "id": "assert-d", "action": "assert", "target": { "identifier": "churnFieldD" }, "assert": { "property": "value", "op": "contains", "expected": "ddd" } }
+    { "id": "wait-a", "action": "waitFor", "level": "happyPath", "target": { "identifier": "churnFieldA" }, "args": { "present": true } },
+    { "id": "type-a", "action": "type", "level": "happyPath", "target": { "identifier": "churnFieldA" }, "args": { "text": "aaa" } },
+    { "id": "type-b", "action": "type", "level": "happyPath", "target": { "identifier": "churnFieldB" }, "args": { "text": "bbb" } },
+    { "id": "type-c", "action": "type", "level": "happyPath", "target": { "identifier": "churnFieldC" }, "args": { "text": "ccc" } },
+    { "id": "type-d", "action": "type", "level": "happyPath", "target": { "identifier": "churnFieldD" }, "args": { "text": "ddd" } },
+    { "id": "assert-a", "action": "assert", "level": "happyPath", "target": { "identifier": "churnFieldA" }, "assert": { "property": "value", "op": "contains", "expected": "aaa" } },
+    { "id": "assert-b", "action": "assert", "level": "happyPath", "target": { "identifier": "churnFieldB" }, "assert": { "property": "value", "op": "contains", "expected": "bbb" } },
+    { "id": "assert-c", "action": "assert", "level": "happyPath", "target": { "identifier": "churnFieldC" }, "assert": { "property": "value", "op": "contains", "expected": "ccc" } },
+    { "id": "assert-d", "action": "assert", "level": "happyPath", "target": { "identifier": "churnFieldD" }, "assert": { "property": "value", "op": "contains", "expected": "ddd" } }
   ]
 }

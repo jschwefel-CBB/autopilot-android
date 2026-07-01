@@ -1,12 +1,12 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "name": "compose-scroll-fixture",
   "comment": "Reproduces a real Compose app's scrollable-form shape the non-scrollable fixture did NOT: a scrollable LazyColumn where the target field (scrollFieldLow) is below the fold once the keyboard is up. Type scrollFieldA (top), then type+assert scrollFieldLow (deep in the list). If the runner can't find scrollFieldLow, the runner-side FIND-FAIL-DUMP shows whether its node is absent (not composed) or present-but-stale.",
   "defaults": { "timeoutMs": 5000, "retryIntervalMs": 100, "skipInitialScroll": true },
   "steps": [
-    { "id": "wait-top", "action": "waitFor", "target": { "identifier": "scrollFieldA" }, "args": { "present": true } },
-    { "id": "type-top", "action": "type", "target": { "identifier": "scrollFieldA" }, "args": { "text": "topval" } },
-    { "id": "type-low", "action": "type", "target": { "identifier": "scrollFieldLow" }, "args": { "text": "lowval" } },
-    { "id": "assert-low", "action": "assert", "target": { "identifier": "scrollFieldLow" }, "assert": { "property": "value", "op": "contains", "expected": "lowval" } }
+    { "id": "wait-top", "action": "waitFor", "level": "happyPath", "target": { "identifier": "scrollFieldA" }, "args": { "present": true } },
+    { "id": "type-top", "action": "type", "level": "happyPath", "target": { "identifier": "scrollFieldA" }, "args": { "text": "topval" } },
+    { "id": "type-low", "action": "type", "level": "happyPath", "target": { "identifier": "scrollFieldLow" }, "args": { "text": "lowval" } },
+    { "id": "assert-low", "action": "assert", "level": "happyPath", "target": { "identifier": "scrollFieldLow" }, "assert": { "property": "value", "op": "contains", "expected": "lowval" } }
   ]
 }
