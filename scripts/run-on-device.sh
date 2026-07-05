@@ -17,8 +17,10 @@
 # Examples:
 #   bash scripts/run-on-device.sh                         # sole USB device, bundled plan
 #   bash scripts/run-on-device.sh --serial ABC123         # a specific device
-#   bash scripts/run-on-device.sh --pair 192.168.1.5:41234 481500   # first-time wireless
-#   bash scripts/run-on-device.sh --connect 192.168.1.5:39000       # already-paired wireless
+#   bash scripts/run-on-device.sh --wireless ABC123       # EASY wireless: enable it
+#        over USB via mDNS (no pairing code / Settings), then unplug. Once per reboot.
+#   bash scripts/run-on-device.sh --pair 192.168.1.5:41234 481500   # manual wireless pair
+#   bash scripts/run-on-device.sh --connect 192.168.1.5:39000       # manual connect by IP
 #   bash scripts/run-on-device.sh --connect 192.168.1.5:39000 \
 #        --plan ./my-plan.json --target com.some.installedapp        # external app
 #
@@ -28,11 +30,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Let adb auto-connect to any device advertising itself over mDNS (Android 11+
+# Wireless Debugging), so an already-wireless phone is found with no --connect / IP.
+export ADB_MDNS_AUTO_CONNECT="${ADB_MDNS_AUTO_CONNECT:-adb-tls-connect}"
+
 RUNNER="com.autopilot.testhostapp.test/androidx.test.runner.AndroidJUnitRunner"
 SERIAL=""
 CONNECT=""
 PAIR_ADDR=""
 PAIR_CODE=""
+WIRELESS_USB=""
 PLAN=""
 TARGET=""
 NO_INSTALL=0
@@ -47,6 +54,7 @@ while [ $# -gt 0 ]; do
     --serial)  SERIAL="${2:?--serial needs a value}"; shift 2 ;;
     --connect) CONNECT="${2:?--connect needs ip:port}"; shift 2 ;;
     --pair)    PAIR_ADDR="${2:?--pair needs ip:port}"; PAIR_CODE="${3:?--pair needs a code}"; shift 3 ;;
+    --wireless) WIRELESS_USB="${2:?--wireless needs the USB serial}"; shift 2 ;;
     --plan)    PLAN="${2:?--plan needs a path}"; shift 2 ;;
     --target)  TARGET="${2:?--target needs a package}"; shift 2 ;;
     --no-install) NO_INSTALL=1; shift ;;
@@ -54,6 +62,39 @@ while [ $# -gt 0 ]; do
     *) echo "Unknown argument: $1" >&2; usage 1 ;;
   esac
 done
+
+# --- One-command wireless via mDNS (for an ALREADY-USB-paired phone) ----------
+# --wireless <usb-serial>: while the phone is on USB, turn Wireless Debugging on
+# over adb (no Settings dance) and let mDNS advertise a connectable service — the
+# USB TLS-pairing trust carries over, so no pairing code is needed. Resolves the
+# advertised _adb-tls-connect service as the wireless serial; you can then unplug.
+# Wireless Debugging resets on reboot, so re-run --wireless once per reboot.
+if [ -n "$WIRELESS_USB" ]; then
+  echo "==> Enabling Wireless Debugging on $WIRELESS_USB (via USB)…" >&2
+  adb -s "$WIRELESS_USB" shell settings put global adb_wifi_enabled 1 >/dev/null 2>&1 || true
+  export ADB_MDNS_AUTO_CONNECT=adb-tls-connect
+  # Wait (up to ~15s) for THIS phone to advertise its wireless service over mDNS.
+  # The advertised name embeds the USB serial (adb-<SERIAL>-xxxx._adb-tls-connect
+  # ._tcp), so match on it — otherwise, with several phones wireless, we'd grab the
+  # wrong one.
+  MDNS_SERIAL=""
+  i=0
+  while [ "$i" -lt 15 ]; do
+    MDNS_SERIAL="$(adb devices 2>/dev/null \
+      | awk '/_adb-tls-connect._tcp[[:space:]]+device/{print $1}' \
+      | grep -- "-${WIRELESS_USB}-" | head -1)"
+    [ -n "$MDNS_SERIAL" ] && break
+    sleep 1; i=$((i + 1))
+  done
+  if [ -n "$MDNS_SERIAL" ]; then
+    SERIAL="$MDNS_SERIAL"
+    echo "==> Wireless: $SERIAL — you can UNPLUG the USB cable now." >&2
+  else
+    echo "Could not detect the wireless (mDNS) service within 15s. Is the phone on" >&2
+    echo "the same Wi-Fi as this Mac? Falling back to the USB serial $WIRELESS_USB." >&2
+    SERIAL="$WIRELESS_USB"
+  fi
+fi
 
 # --- Wireless setup (optional) ------------------------------------------------
 # First-time wireless pairing (Android 11+). The PAIRING port shown in the

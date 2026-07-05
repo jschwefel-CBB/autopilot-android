@@ -94,12 +94,30 @@ bash scripts/run-on-device.sh                 # the sole connected device
 bash scripts/run-on-device.sh --serial ABC123 # a specific device
 ```
 
-### Wireless (Android 11+)
+### Wireless — the easy way (`--wireless`)
 
-On the phone: **Developer options → Wireless debugging → Pair device with pairing
-code**. That dialog shows an `IP:PAIRING_PORT` and a 6-digit code. The main
-Wireless-debugging screen shows a *different* `IP:CONNECT_PORT` at the top. The
-phone and Mac must be on the same network.
+For a phone that has already been paired over USB at least once, skip the whole
+pairing-code dance. Plug it in via USB and:
+
+```bash
+bash scripts/run-on-device.sh --wireless <serial>
+```
+
+This turns on Wireless Debugging over adb (no Settings, no pairing code), waits for
+the phone to advertise itself over mDNS, resolves the wireless connection, and
+prints `you can UNPLUG the USB cable now`. It then runs wirelessly. Because the USB
+pairing trust carries over, no 6-digit code is needed. Wireless Debugging resets on
+reboot, so run `--wireless` once per reboot; within the same boot, later runs
+auto-reconnect over mDNS with no flags (the script sets `ADB_MDNS_AUTO_CONNECT`).
+
+Requirements: Android 11+, and the phone + Mac on the same Wi-Fi network.
+
+### Wireless — manual pairing (first-time, or if `--wireless` can't reach mDNS)
+
+If the phone has never been USB-paired (or mDNS is blocked on your network), use
+the OS pairing flow: **Developer options → Wireless debugging → Pair device with
+pairing code**. That dialog shows an `IP:PAIRING_PORT` and a 6-digit code; the main
+Wireless-debugging screen shows a *different* `IP:CONNECT_PORT` at the top.
 
 ```bash
 # one-time pairing (uses the pairing port + code from the dialog)
@@ -109,9 +127,7 @@ bash scripts/run-on-device.sh --pair 192.168.1.5:41234 481500
 bash scripts/run-on-device.sh --connect 192.168.1.5:39000
 ```
 
-Once connected the phone appears in `adb devices` as `192.168.1.5:39000`, and
-everything is identical to USB. The script prints `Using serial: …` so you can
-confirm exactly which device ran.
+The script prints `Using serial: …` so you can confirm exactly which device ran.
 
 ### Driving an external app
 
