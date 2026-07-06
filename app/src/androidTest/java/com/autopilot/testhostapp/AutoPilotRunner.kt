@@ -226,60 +226,22 @@ class AutoPilotRunner(
         targetPackage = resolveTargetPackage(plan)
         dismissPermissionDialogs = plan.defaults?.dismissPermissionDialogs ?: false
         grantDeclaredPermissions(plan)   // grant up front so dialogs never appear
-
-        // Suppress the soft keyboard for the whole run (default on). Text still
-        // injects via setText/sendStringSync, so the visible IME is unnecessary —
-        // and with no keyboard the runner never needs to dismiss it, which sidesteps
-        // the Samsung One UI bug where a UiDevice.pressBack (used to drop the IME)
-        // navigates out of the app and backgrounds it. Re-enabled in `finally`.
-        val suppressIme = plan.defaults?.suppressSoftKeyboard ?: true
-        if (suppressIme) disableSoftKeyboard()
-        try {
-            launchTargetApp()
-            val timeout = plan.defaults?.timeoutMs ?: defaultTimeout()
-            // MainActivity-specific top-scroll for the unified plan; skip for host-app
-            // plans that drive a different surface (e.g. the Compose fixture dialog).
-            if (drivingHostApp && plan.defaults?.skipInitialScroll != true) scrollToTop()
-            return plan.steps.map { step ->
-                // Some launchers reclaim foreground after launch (seen on real
-                // Motorola/Samsung devices); re-assert the app is on top before
-                // acting. No-op when already foreground, so healthy runs (emulator,
-                // most devices) are unaffected.
-                ensureTargetForeground()
-                // A permission dialog can surface on screen entry mid-plan; clear it
-                // (opt-in) before the step interacts with the now-covered UI.
-                dismissPermissionDialogIfPresent()
-                executeStep(step, timeout)
-            }
-        } finally {
-            if (suppressIme) enableSoftKeyboard()
+        launchTargetApp()
+        val timeout = plan.defaults?.timeoutMs ?: defaultTimeout()
+        // MainActivity-specific top-scroll for the unified plan; skip for host-app
+        // plans that drive a different surface (e.g. the Compose fixture dialog).
+        if (drivingHostApp && plan.defaults?.skipInitialScroll != true) scrollToTop()
+        return plan.steps.map { step ->
+            // Some launchers/notification shades reclaim the top of the a11y tree
+            // after launch (seen on real Motorola/Samsung devices); re-assert the app
+            // is on top before acting. No-op when the app is already present in the
+            // a11y tree, so healthy runs (emulator, most devices) are unaffected.
+            ensureTargetForeground()
+            // A permission dialog can surface on screen entry mid-plan; clear it
+            // (opt-in) before the step interacts with the now-covered UI.
+            dismissPermissionDialogIfPresent()
+            executeStep(step, timeout)
         }
-    }
-
-    // The active soft IME, saved so we can restore it after the run.
-    private var savedIme: String? = null
-
-    /** Disable the current soft keyboard so it never appears during the run. */
-    private fun disableSoftKeyboard() {
-        try {
-            savedIme = device.executeShellCommand("settings get secure default_input_method").trim()
-            val ime = savedIme
-            if (!ime.isNullOrEmpty() && ime != "null") {
-                device.executeShellCommand("ime disable $ime")
-                Thread.sleep(200)
-            }
-        } catch (_: Throwable) { /* best-effort; a run without this still works */ }
-    }
-
-    /** Restore the soft keyboard disabled by disableSoftKeyboard(). */
-    private fun enableSoftKeyboard() {
-        try {
-            val ime = savedIme
-            if (!ime.isNullOrEmpty() && ime != "null") {
-                device.executeShellCommand("ime enable $ime")
-                device.executeShellCommand("ime set $ime")
-            }
-        } catch (_: Throwable) { /* leave the device usable even if restore fails */ }
     }
 
     private fun scrollToTop() {
