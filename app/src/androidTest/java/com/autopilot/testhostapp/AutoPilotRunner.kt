@@ -120,6 +120,80 @@ class AutoPilotRunner(
         device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 10_000L)
     }
 
+    /**
+     * Ensure the target app is the foreground app before acting on it. Some
+     * launchers (observed on Motorola's launcher on a real device) reclaim
+     * foreground shortly after the app is launched, so a step that ran a beat
+     * after launch would query the launcher's UI instead of the app and fail.
+     *
+     * No-op when the app is already foreground (the normal case on the emulator
+     * and most devices), so this cannot regress a healthy run — it only re-asserts
+     * foreground when it has actually been lost. Re-issues the launch intent (the
+     * same mechanism `launchTargetApp` uses; also valid for the bundled host app,
+     * whose launch intent resolves to its MainActivity) and waits for the app's
+     * window to come back on top.
+     */
+    /**
+     * A `device.pressBack()` that does not let the app fall to the background.
+     * On Samsung One UI a UiDevice.pressBack navigates OUT of the foreground app
+     * even when it was only meant to dismiss the IME (verified via
+     * OneUiGestureProbeTest: pressBack backgrounds the app in every case, including
+     * IME-up). closeIme() relies on Back to drop the keyboard, so we keep the Back
+     * but re-front the app afterwards if it got backgrounded — the IME is dropped
+     * either way, and the app stays foreground. No-op re-front when Back behaved
+     * (most devices), so nothing changes there.
+     */
+    private fun pressBackKeepingForeground() {
+        val was = device.currentPackageName == targetPackage
+        device.pressBack()
+        Thread.sleep(150)
+        if (was && device.currentPackageName != targetPackage) ensureTargetForeground()
+    }
+
+    private fun ensureTargetForeground() {
+        // The right signal is whether the APP is present in the accessibility tree
+        // UiAutomator queries — NOT input focus (device.currentPackageName), and NOT
+        // "is systemui present" (the status bar is always systemui, so that is always
+        // true). On a notification-heavy real device (verified on a Samsung S24) the
+        // notification shade OVERLAYS the app in the a11y tree while input focus still
+        // reports the app; when that happens the app's package is absent from the
+        // tree. If the app IS present, we're done — this is the normal path on the
+        // emulator and healthy devices (no-op, so no regression).
+        if (device.hasObject(By.pkg(targetPackage))) return
+        // App absent → something (a shade overlay, the launcher) is on top. Clear a
+        // shade with HOME (verified to clear it from the a11y tree; NOT pressBack,
+        // which navigates OUT of the app on One UI).
+        device.pressHome()
+        device.wait(Until.hasObject(By.pkg(targetPackage)), 2_000L)
+        if (device.hasObject(By.pkg(targetPackage))) return
+        // Bundled mode: the app is owned by the test's ActivityScenarioRule, not a
+        // launch intent — starting it from the instrumentation context throws a
+        // SecurityException on the emulator. The shade-clear (HOME) above is the
+        // recovery there; don't re-launch.
+        if (drivingHostApp) return
+        // External mode: re-front via the launch intent. Best-effort and non-fatal —
+        // startActivity can still throw in some configs, and HOME above is usually
+        // enough, so a failed re-launch must not abort the run.
+        try {
+            val ctx = instrumentation.context
+            val intent = ctx.packageManager.getLaunchIntentForPackage(targetPackage) ?: return
+            // REORDER_TO_FRONT brings an existing instance forward without recreating
+            // it (so app state / typed text is preserved); NEW_TASK is required from a
+            // non-activity context.
+            intent.addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            repeat(3) {
+                if (device.hasObject(By.pkg(targetPackage))) return
+                // The app is absent from the a11y tree here; clear a possible shade
+                // overlay (HOME) before re-launching.
+                device.pressHome()
+                ctx.startActivity(intent)
+                device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 3_000L)
+            }
+        } catch (_: Throwable) { /* re-front is best-effort; HOME already ran */ }
+    }
+
     /** Best-effort dismissal of a blocking runtime-permission system dialog.
      * Only acts when the plan opted in (dismissPermissionDialogs). Taps the
      * "while using"/"allow" affordance if a permission-controller dialog is up.
@@ -158,6 +232,11 @@ class AutoPilotRunner(
         // plans that drive a different surface (e.g. the Compose fixture dialog).
         if (drivingHostApp && plan.defaults?.skipInitialScroll != true) scrollToTop()
         return plan.steps.map { step ->
+            // Some launchers/notification shades reclaim the top of the a11y tree
+            // after launch (seen on real Motorola/Samsung devices); re-assert the app
+            // is on top before acting. No-op when the app is already present in the
+            // a11y tree, so healthy runs (emulator, most devices) are unaffected.
+            ensureTargetForeground()
             // A permission dialog can surface on screen entry mid-plan; clear it
             // (opt-in) before the step interacts with the now-covered UI.
             dismissPermissionDialogIfPresent()
@@ -168,10 +247,14 @@ class AutoPilotRunner(
     private fun scrollToTop() {
         closeIme()
         Thread.sleep(300)
-        // Swipe upward 4 times to reach top of the outer ScrollView
+        // Fling the content to the top (finger moves DOWN → content scrolls up).
+        // Start BELOW the top ~40% of the screen: a swipe that begins in the top
+        // edge zone pulls the notification shade / quick-settings on real devices
+        // (seen on real Motorola + Samsung hardware), covering the app. The
+        // emulator has no such gesture zone, so this only bites on hardware.
         repeat(4) {
             val h = device.displayHeight; val w = device.displayWidth
-            device.swipe(w / 2, h / 4, w / 2, h * 3 / 4, 20)
+            device.swipe(w / 2, h / 2, w / 2, h * 9 / 10, 20)
             Thread.sleep(150)
         }
     }
@@ -202,6 +285,16 @@ class AutoPilotRunner(
         forceDismissIme()
         obj = resolveElement(sel)
         if (obj.exists()) return obj
+        // Fail-fast guard: if the app under test is not the foreground app, the
+        // element cannot be here no matter how much we scroll — scrolling the
+        // launcher/overlay just burns MINUTES of retry loops (observed on a real
+        // Samsung with a Messenger chat-head overlay stealing focus). Try to
+        // re-front the app ONCE (cheap); if it still isn't foreground, skip the
+        // expensive scroll cascade and fall through to a fast, legible failure.
+        ensureTargetForeground()
+        if (device.currentPackageName != targetPackage) {
+            return resolveElement(sel).also { if (!it.exists()) dumpFindFailure(sel) }
+        }
         //  - bring an off-viewport target back. Only scroll/swipe when it can
         //    actually help (a scrollable container exists, or the node is off the
         //    viewport) — never thrash a fixed, non-scrollable dialog.
@@ -525,8 +618,10 @@ class AutoPilotRunner(
                 if (resolveElement(sel).exists()) return
             }
             repeat(4) {
-                // Downward swipe in case element is below current position
-                device.swipe(w / 2, h / 3, w / 2, h * 2 / 3, 20)
+                // Downward swipe in case element is below current position. Start at
+                // mid-screen (not h/3): a downward gesture beginning in the top edge
+                // zone pulls the notification shade on real devices, covering the app.
+                device.swipe(w / 2, h / 2, w / 2, h * 9 / 10, 20)
                 Thread.sleep(150)
                 if (resolveElement(sel).exists()) return
             }
@@ -1018,7 +1113,7 @@ class AutoPilotRunner(
             if (drivingHostApp) {
                 device.executeShellCommand("input keyevent 111")  // ESCAPE — safe on classic Views
                 Thread.sleep(150)
-                if (isImeShown()) { device.pressBack(); Thread.sleep(200) }
+                if (isImeShown()) { pressBackKeepingForeground(); Thread.sleep(200) }
                 return
             }
             //   - external → a window-token IMM-hide can NEVER work (targetContext is
@@ -1040,7 +1135,7 @@ class AutoPilotRunner(
             //   dialog-safe. If the IME is not shown, do nothing (a stray Back would
             //   navigate/close the dialog).
             if (isImeShown()) {
-                device.pressBack()
+                pressBackKeepingForeground()
                 Thread.sleep(200)
             }
         } catch (_: Exception) {}
@@ -1092,7 +1187,7 @@ class AutoPilotRunner(
             // → mInputShown=false AND the dialog field still present. This
             // is what makes a keyboard-occluded bottom button readable, and what
             // lets the add-row's leftmost field be reached after rows are added.
-            device.pressBack()
+            pressBackKeepingForeground()
             Thread.sleep(200)
         } catch (_: Exception) {}
     }
