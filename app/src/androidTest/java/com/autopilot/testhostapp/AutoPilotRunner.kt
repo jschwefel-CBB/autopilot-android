@@ -151,36 +151,47 @@ class AutoPilotRunner(
     }
 
     private fun ensureTargetForeground() {
-        // IMPORTANT: on a notification-heavy real device (verified on a Samsung
-        // S24), the notification shade / system UI can OVERLAY the app in the
-        // accessibility tree that UiAutomator queries, even while
-        // `device.currentPackageName` (INPUT focus) still reports the app. So an
-        // input-focus check alone is not enough — the runner would think the app is
-        // fine while every find sees the shade. Detect the shade in the a11y tree
-        // and dismiss it with HOME (verified to clear the overlay; NOT pressBack,
-        // which navigates OUT of the app on One UI — see OneUiGestureProbeTest).
-        if (device.hasObject(By.pkg("com.android.systemui"))) {
-            device.pressHome()
-            device.wait(Until.gone(By.pkg("com.android.systemui")), 2_000L)
-        }
-        // Now decide re-front by what UiAutomator actually sees on top. If the app's
-        // window is present in the a11y tree, we're good.
+        // The right signal is whether the APP is present in the accessibility tree
+        // UiAutomator queries — NOT input focus (device.currentPackageName), and NOT
+        // "is systemui present" (the status bar is always systemui, so that is always
+        // true). On a notification-heavy real device (verified on a Samsung S24) the
+        // notification shade OVERLAYS the app in the a11y tree while input focus still
+        // reports the app; when that happens the app's package is absent from the
+        // tree. If the app IS present, we're done — this is the normal path on the
+        // emulator and healthy devices (no-op, so no regression).
         if (device.hasObject(By.pkg(targetPackage))) return
-        val ctx = instrumentation.context
-        val intent = ctx.packageManager.getLaunchIntentForPackage(targetPackage) ?: return
-        // REORDER_TO_FRONT brings an existing instance forward without recreating
-        // it (so app state / typed text is preserved); NEW_TASK is required from a
-        // non-activity context.
-        intent.addFlags(
-            android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-            android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-        repeat(3) {
-            if (device.hasObject(By.pkg(targetPackage))) return
-            // Clear a shade that reappeared before re-launching.
-            if (device.hasObject(By.pkg("com.android.systemui"))) device.pressHome()
-            ctx.startActivity(intent)
-            device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 3_000L)
-        }
+        // App absent → something (a shade overlay, the launcher) is on top. Clear a
+        // shade with HOME (verified to clear it from the a11y tree; NOT pressBack,
+        // which navigates OUT of the app on One UI).
+        device.pressHome()
+        device.wait(Until.hasObject(By.pkg(targetPackage)), 2_000L)
+        if (device.hasObject(By.pkg(targetPackage))) return
+        // Bundled mode: the app is owned by the test's ActivityScenarioRule, not a
+        // launch intent — starting it from the instrumentation context throws a
+        // SecurityException on the emulator. The shade-clear (HOME) above is the
+        // recovery there; don't re-launch.
+        if (drivingHostApp) return
+        // External mode: re-front via the launch intent. Best-effort and non-fatal —
+        // startActivity can still throw in some configs, and HOME above is usually
+        // enough, so a failed re-launch must not abort the run.
+        try {
+            val ctx = instrumentation.context
+            val intent = ctx.packageManager.getLaunchIntentForPackage(targetPackage) ?: return
+            // REORDER_TO_FRONT brings an existing instance forward without recreating
+            // it (so app state / typed text is preserved); NEW_TASK is required from a
+            // non-activity context.
+            intent.addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            repeat(3) {
+                if (device.hasObject(By.pkg(targetPackage))) return
+                // The app is absent from the a11y tree here; clear a possible shade
+                // overlay (HOME) before re-launching.
+                device.pressHome()
+                ctx.startActivity(intent)
+                device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 3_000L)
+            }
+        } catch (_: Throwable) { /* re-front is best-effort; HOME already ran */ }
     }
 
     /** Best-effort dismissal of a blocking runtime-permission system dialog.
