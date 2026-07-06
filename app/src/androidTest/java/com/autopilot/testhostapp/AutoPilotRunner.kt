@@ -133,17 +133,39 @@ class AutoPilotRunner(
      * whose launch intent resolves to its MainActivity) and waits for the app's
      * window to come back on top.
      */
+    /**
+     * A `device.pressBack()` that does not let the app fall to the background.
+     * On Samsung One UI a UiDevice.pressBack navigates OUT of the foreground app
+     * even when it was only meant to dismiss the IME (verified via
+     * OneUiGestureProbeTest: pressBack backgrounds the app in every case, including
+     * IME-up). closeIme() relies on Back to drop the keyboard, so we keep the Back
+     * but re-front the app afterwards if it got backgrounded — the IME is dropped
+     * either way, and the app stays foreground. No-op re-front when Back behaved
+     * (most devices), so nothing changes there.
+     */
+    private fun pressBackKeepingForeground() {
+        val was = device.currentPackageName == targetPackage
+        device.pressBack()
+        Thread.sleep(150)
+        if (was && device.currentPackageName != targetPackage) ensureTargetForeground()
+    }
+
     private fun ensureTargetForeground() {
-        if (device.currentPackageName == targetPackage) return
-        // A pulled-down notification shade / quick-settings panel is the system UI
-        // package, not a launcher — an app relaunch won't dismiss it. Close it
-        // first. (Real-device swipe gestures can inadvertently pull the shade; the
-        // emulator's gesture zones differ, so this only bites on hardware.)
-        if (device.currentPackageName == "com.android.systemui") {
-            device.pressBack()
+        // IMPORTANT: on a notification-heavy real device (verified on a Samsung
+        // S24), the notification shade / system UI can OVERLAY the app in the
+        // accessibility tree that UiAutomator queries, even while
+        // `device.currentPackageName` (INPUT focus) still reports the app. So an
+        // input-focus check alone is not enough — the runner would think the app is
+        // fine while every find sees the shade. Detect the shade in the a11y tree
+        // and dismiss it with HOME (verified to clear the overlay; NOT pressBack,
+        // which navigates OUT of the app on One UI — see OneUiGestureProbeTest).
+        if (device.hasObject(By.pkg("com.android.systemui"))) {
             device.pressHome()
+            device.wait(Until.gone(By.pkg("com.android.systemui")), 2_000L)
         }
-        if (device.currentPackageName == targetPackage) return
+        // Now decide re-front by what UiAutomator actually sees on top. If the app's
+        // window is present in the a11y tree, we're good.
+        if (device.hasObject(By.pkg(targetPackage))) return
         val ctx = instrumentation.context
         val intent = ctx.packageManager.getLaunchIntentForPackage(targetPackage) ?: return
         // REORDER_TO_FRONT brings an existing instance forward without recreating
@@ -153,7 +175,9 @@ class AutoPilotRunner(
             android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
             android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         repeat(3) {
-            if (device.currentPackageName == targetPackage) return
+            if (device.hasObject(By.pkg(targetPackage))) return
+            // Clear a shade that reappeared before re-launching.
+            if (device.hasObject(By.pkg("com.android.systemui"))) device.pressHome()
             ctx.startActivity(intent)
             device.wait(Until.hasObject(By.pkg(targetPackage).depth(0)), 3_000L)
         }
@@ -191,22 +215,60 @@ class AutoPilotRunner(
         targetPackage = resolveTargetPackage(plan)
         dismissPermissionDialogs = plan.defaults?.dismissPermissionDialogs ?: false
         grantDeclaredPermissions(plan)   // grant up front so dialogs never appear
-        launchTargetApp()
-        val timeout = plan.defaults?.timeoutMs ?: defaultTimeout()
-        // MainActivity-specific top-scroll for the unified plan; skip for host-app
-        // plans that drive a different surface (e.g. the Compose fixture dialog).
-        if (drivingHostApp && plan.defaults?.skipInitialScroll != true) scrollToTop()
-        return plan.steps.map { step ->
-            // Some launchers reclaim foreground after launch (seen on a real
-            // Motorola device); re-assert the app is on top before acting, so the
-            // step queries the app's UI and not the launcher's. No-op when already
-            // foreground, so healthy runs (emulator, most devices) are unaffected.
-            ensureTargetForeground()
-            // A permission dialog can surface on screen entry mid-plan; clear it
-            // (opt-in) before the step interacts with the now-covered UI.
-            dismissPermissionDialogIfPresent()
-            executeStep(step, timeout)
+
+        // Suppress the soft keyboard for the whole run (default on). Text still
+        // injects via setText/sendStringSync, so the visible IME is unnecessary —
+        // and with no keyboard the runner never needs to dismiss it, which sidesteps
+        // the Samsung One UI bug where a UiDevice.pressBack (used to drop the IME)
+        // navigates out of the app and backgrounds it. Re-enabled in `finally`.
+        val suppressIme = plan.defaults?.suppressSoftKeyboard ?: true
+        if (suppressIme) disableSoftKeyboard()
+        try {
+            launchTargetApp()
+            val timeout = plan.defaults?.timeoutMs ?: defaultTimeout()
+            // MainActivity-specific top-scroll for the unified plan; skip for host-app
+            // plans that drive a different surface (e.g. the Compose fixture dialog).
+            if (drivingHostApp && plan.defaults?.skipInitialScroll != true) scrollToTop()
+            return plan.steps.map { step ->
+                // Some launchers reclaim foreground after launch (seen on real
+                // Motorola/Samsung devices); re-assert the app is on top before
+                // acting. No-op when already foreground, so healthy runs (emulator,
+                // most devices) are unaffected.
+                ensureTargetForeground()
+                // A permission dialog can surface on screen entry mid-plan; clear it
+                // (opt-in) before the step interacts with the now-covered UI.
+                dismissPermissionDialogIfPresent()
+                executeStep(step, timeout)
+            }
+        } finally {
+            if (suppressIme) enableSoftKeyboard()
         }
+    }
+
+    // The active soft IME, saved so we can restore it after the run.
+    private var savedIme: String? = null
+
+    /** Disable the current soft keyboard so it never appears during the run. */
+    private fun disableSoftKeyboard() {
+        try {
+            savedIme = device.executeShellCommand("settings get secure default_input_method").trim()
+            val ime = savedIme
+            if (!ime.isNullOrEmpty() && ime != "null") {
+                device.executeShellCommand("ime disable $ime")
+                Thread.sleep(200)
+            }
+        } catch (_: Throwable) { /* best-effort; a run without this still works */ }
+    }
+
+    /** Restore the soft keyboard disabled by disableSoftKeyboard(). */
+    private fun enableSoftKeyboard() {
+        try {
+            val ime = savedIme
+            if (!ime.isNullOrEmpty() && ime != "null") {
+                device.executeShellCommand("ime enable $ime")
+                device.executeShellCommand("ime set $ime")
+            }
+        } catch (_: Throwable) { /* leave the device usable even if restore fails */ }
     }
 
     private fun scrollToTop() {
@@ -1078,7 +1140,7 @@ class AutoPilotRunner(
             if (drivingHostApp) {
                 device.executeShellCommand("input keyevent 111")  // ESCAPE — safe on classic Views
                 Thread.sleep(150)
-                if (isImeShown()) { device.pressBack(); Thread.sleep(200) }
+                if (isImeShown()) { pressBackKeepingForeground(); Thread.sleep(200) }
                 return
             }
             //   - external → a window-token IMM-hide can NEVER work (targetContext is
@@ -1100,7 +1162,7 @@ class AutoPilotRunner(
             //   dialog-safe. If the IME is not shown, do nothing (a stray Back would
             //   navigate/close the dialog).
             if (isImeShown()) {
-                device.pressBack()
+                pressBackKeepingForeground()
                 Thread.sleep(200)
             }
         } catch (_: Exception) {}
@@ -1152,7 +1214,7 @@ class AutoPilotRunner(
             // → mInputShown=false AND the dialog field still present. This
             // is what makes a keyboard-occluded bottom button readable, and what
             // lets the add-row's leftmost field be reached after rows are added.
-            device.pressBack()
+            pressBackKeepingForeground()
             Thread.sleep(200)
         } catch (_: Exception) {}
     }

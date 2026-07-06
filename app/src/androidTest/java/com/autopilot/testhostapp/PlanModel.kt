@@ -29,7 +29,14 @@ data class PlanDefaults(
     // Set true for host-app plans that drive a different surface (e.g. the Compose
     // fixture dialog) where those swipes would disturb the UI. Default false →
     // existing unified-plan behavior unchanged.
-    val skipInitialScroll: Boolean? = null
+    val skipInitialScroll: Boolean? = null,
+    // Disable the soft keyboard for the duration of the run (re-enabled after).
+    // Text still injects via setText/sendStringSync without the visible keyboard,
+    // so the whole IME-dismiss path (and its Back presses) is never needed — which
+    // avoids a documented Samsung One UI bug where UiDevice.pressBack navigates OUT
+    // of the app when the keyboard is up, backgrounding it mid-run. Default TRUE.
+    // Set false only for a plan that specifically tests keyboard/IME behavior.
+    val suppressSoftKeyboard: Boolean? = null
 )
 
 /**
