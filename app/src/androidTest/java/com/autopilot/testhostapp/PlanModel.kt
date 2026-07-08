@@ -82,7 +82,16 @@ data class ArgsJson(
     val menuPath: List<String>? = null,
     val color: String? = null,
     val keys: String? = null,
-    val padding: Int? = null
+    val padding: Int? = null,
+    // Demo args (schema 1.2). Present so a v1.2 demo plan parses cleanly; the demo
+    // actions (highlight/caption/pace) are SKIPPED on Android — the instrumented
+    // test process cannot draw an overlay on the app under test (needs
+    // SYSTEM_ALERT_WINDOW, not granted), a genuine platform limitation. See the
+    // runner's action dispatch.
+    val holdMs: Int? = null,
+    val position: String? = null,
+    val typeMsPerChar: Int? = null,
+    val stepDelayMs: Int? = null
 )
 
 data class AssertJson(

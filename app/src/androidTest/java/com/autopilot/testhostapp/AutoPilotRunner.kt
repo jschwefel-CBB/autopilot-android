@@ -757,6 +757,16 @@ class AutoPilotRunner(
                     android.util.Log.i("AutoPilotRunner", "skipped: $id (${step.action})")
                     StepResult(id, passed = true, skipped = true, message = "skipped: ${step.action}")
                 }
+                // Demo actions (schema 1.2) are SKIPPED on Android: the instrumented
+                // test process cannot draw a highlight ring / caption banner on the
+                // app under test (that needs SYSTEM_ALERT_WINDOW, not granted here) —
+                // a genuine platform limitation, so demos are macOS/web only. A v1.2
+                // plan still runs to completion; these steps just no-op (skip-don't-
+                // branch, exactly like the visual asserts above).
+                "highlight", "caption", "pace" -> {
+                    android.util.Log.i("AutoPilotRunner", "skipped: $id (${step.action}) — demo actions are not rendered on Android")
+                    StepResult(id, passed = true, skipped = true, message = "skipped: ${step.action} (demo; not supported on Android)")
+                }
                 else -> {
                     android.util.Log.w("AutoPilotRunner", "unknown action: ${step.action} for $id")
                     StepResult(id, passed = true, skipped = true, message = "unknown action: ${step.action}")
