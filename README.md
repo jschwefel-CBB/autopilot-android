@@ -2,7 +2,7 @@
 
 Android platform runner for the AutoPilot declarative GUI test framework.
 
-Runs the same JSON plan format used by [`autopilot-macos`](https://github.com/jschwefel-CBB/autopilot-macos) and [`autopilot-ios`](https://github.com/jschwefel-CBB/autopilot-ios). Plans are human-readable JSON, but designed to be authored by AI agents — connect an agent to the AutoPilot MCP server, describe what you want tested, and it produces a ready-to-run plan.
+Runs the same JSON plan format used by [`autopilot-macos`](https://github.com/TestingAutoPilot/autopilot-macos) and [`autopilot-ios`](https://github.com/TestingAutoPilot/autopilot-ios). Plans are human-readable JSON, but designed to be authored by AI agents — connect an agent to the AutoPilot MCP server, describe what you want tested, and it produces a ready-to-run plan.
 
 ## What's here
 
@@ -30,7 +30,7 @@ autopilot-android/
 Requires Android SDK and a connected device or running AVD (API 26+).
 
 ```bash
-git clone https://github.com/jschwefel-CBB/autopilot-android.git
+git clone https://github.com/TestingAutoPilot/autopilot-android.git
 cd autopilot-android
 ```
 
@@ -184,7 +184,7 @@ All other actions pass.
 
 ## Core dependency
 
-This runner implements the AutoPilot plan format defined by [`autopilot-core`](https://github.com/jschwefel-CBB/autopilot-core). The plan model (`PlanModel.kt`) mirrors the core schema. `autopilot-core` is a Swift package; the Android runner re-implements the same model in Kotlin.
+This runner implements the AutoPilot plan format defined by [`autopilot-core`](https://github.com/TestingAutoPilot/autopilot-core). The plan model (`PlanModel.kt`) mirrors the core schema. `autopilot-core` is a Swift package; the Android runner re-implements the same model in Kotlin.
 
 ## Cross-platform
 
@@ -192,8 +192,8 @@ The same JSON plan format runs across platforms:
 
 | Platform | Repo | Result |
 |---|---|---|
-| macOS | [`autopilot-macos`](https://github.com/jschwefel-CBB/autopilot-macos) | 78 PASS (supports the 3 visual steps) |
-| iOS | [`autopilot-ios`](https://github.com/jschwefel-CBB/autopilot-ios) | 75 PASS + 3 SKIP |
+| macOS | [`autopilot-macos`](https://github.com/TestingAutoPilot/autopilot-macos) | 78 PASS (supports the 3 visual steps) |
+| iOS | [`autopilot-ios`](https://github.com/TestingAutoPilot/autopilot-ios) | 75 PASS + 3 SKIP |
 | Android | this repo | 75 PASS + 3 SKIP |
 
 ## Requirements
