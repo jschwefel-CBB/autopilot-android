@@ -205,4 +205,4 @@ The same JSON plan format runs across platforms:
 
 ## License
 
-MIT
+Apache-2.0 — see [`LICENSE`](LICENSE).
